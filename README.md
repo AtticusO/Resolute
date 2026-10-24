@@ -1,69 +1,116 @@
 # Resolute
 
-A desktop environment shaped like a roll-top desk, built with Python 3 and PyQt6.
+A desktop environment shaped like a roll-top desk, seen from the chair. It is written in Python 3 with PyQt6 and runs on an XFCE session under X11, taking the place of XFCE's own desktop (`xfdesktop`) while keeping XFCE's window manager, so programs still open in normal windows.
 
-| On the desk | What it does |
+## On the desk
+
+| Object | What it does |
 |---|---|
-| Stained glass lamp (left) | Start menu: search and launch any installed application, plus Lock, Sleep, Log Out, Restart and Shut Down |
-| Letter slots (back centre) | One card per open program, with its icon and title: click to bring it forward, click the front one to minimise it, scroll if there are more than 11 |
-| Radio (back left) | Left knob: speaker volume. Right knob: microphone level. Scroll or drag a knob to turn it, click it to mute. Click the glowing dial to choose speakers and microphone |
-| Bronze gauges (on their stand) | CPU load, memory, CPU temperature and storage, updated every 1.5 s; hover one for details |
-| Pen cup (back right) | Opens a terminal |
-| Quill and inkwell (beside the pen cup) | Lays a sheet of note paper on the leather writing pad; type straight onto it. Whatever you write is saved automatically to a text file. Click the quill again, click the desk, press Esc or the × to put it away |
-| Globe (top right) | Opens the default web browser |
-| Mantel clock (front right) | The time, with a sweeping second hand. The small dial at six o'clock is the battery gauge (E to F, red below 20%, green pip when plugged in). Hover for the date or the exact charge |
-| Sealed envelope (pigeonholes) | Opens Gmail in the default browser |
-| Centre drawer | The view tilts down into it to show your `~/Documents` folder: click a folder to go into it, a file to open it, scroll for more |
-| Left drawer (FILES) | Hanging folders for browsing the whole filesystem: click a folder to go in, Up to go back, a file to open it, scroll for more |
-| Right drawer | Text Editor (LibreOffice Writer) and Slideshow (LibreOffice Impress) |
+| Stained glass lamp (back left) | Start menu: search and launch any installed application (Kali's tools are under Security Tools), plus Lock, Sleep, Log Out, Restart and Shut Down. Log Out, Restart and Shut Down ask first. "Close desk" at the bottom left exits Resolute |
+| Radio (back left, beside the gauges) | Left knob: speaker volume. Right knob: microphone level. Scroll over a knob or drag it up and down to turn it; click it to mute (a red lamp shows when muted). Click the glowing dial to choose which speakers and microphone to use |
+| Bronze gauges (on their stand, back centre) | CPU, RAM, TEMP (CPU temperature) and DISK, updated every 1.5 s. TEMP shows `--°C` with its amber lamp lit when the machine has no temperature sensor (for example in a virtual machine). Hover a gauge for the exact figures |
+| Letter slots (in the organiser, back centre) | One card per open program, with its icon and title. Click a card to bring that window forward; click the card of the window already in front to minimise it. The front window's card stands taller with a brass edge; minimised ones sit lower. Scroll over the slots if more than 11 programs are open |
+| Sealed envelope (in the organiser, left) | Opens Gmail in the default browser |
+| Pen cup (back right of the gauges) | Opens a terminal (XFCE's preferred one) |
+| Quill and inkwell (beside the pen cup) | Lays a sheet of note paper on the leather writing pad; type straight onto it, click on it to move the cursor. It saves automatically to a text file. Click the quill again, click elsewhere on the desk, press Esc or click the × on the page to put it away |
+| Globe (back right) | Opens the default web browser. It turns slowly, faster when you hover |
+| Mantel clock (right, in front of the globe) | The time, with a sweeping second hand. The small dial at six o'clock is the battery gauge: E to F, red below 20%, a green pip when plugged in. Hover the clock for the date, or the small dial for the exact charge |
+| FILES drawer (left) | Hanging file folders for browsing the whole filesystem, starting in your home folder. Click a folder to go in, ▲ Up to go back up (all the way to `/`), a file to open it; scroll for more |
+| DOCUMENTS drawer (centre) | Your `~/Documents` folder as folders and papers. Click a folder to go into it, Back to return, a file to open it; scroll for more |
+| PROGRAMS drawer (right) | Text Editor (LibreOffice Writer), Slideshow (LibreOffice Impress) and VS Code. If Writer is missing, a plain text editor opens instead |
 
-Click a drawer again, click anywhere on the desk, or press Esc to close it.
+Opening a drawer tilts the view down into it. Click the drawer front again, click anywhere on the desk, or press Esc to close it (while the note is open, Esc puts the note away instead).
 
 ## Requirements
 
+An XFCE session running on **X11** (Wayland is not supported; see [How it works with X11](#how-it-works-with-x11)). Kali's default desktop is exactly this.
+
 ```
-sudo apt install python3-pyqt6 python3-psutil python3-numpy libreoffice-writer libreoffice-impress
+sudo apt install python3-pyqt6 python3-psutil python3-numpy \
+    x11-utils xdotool pulseaudio-utils fonts-urw-base35 fonts-dejavu-core \
+    libreoffice-writer libreoffice-impress
 ```
+
+- `x11-utils` (`xprop`) and `xdotool`: listing and switching open programs, and marking the desk as the desktop
+- `pulseaudio-utils` (`pactl`): the radio; works with PulseAudio or PipeWire
+- `fonts-urw-base35` and `fonts-dejavu-core`: the C059, Z003 and DejaVu fonts used on the labels, dials and note paper
+- `exo-utils`, `xdg-utils` and `xfconf` are used too; they come with XFCE
 
 ## Running
 
 ```
-./resolute.sh              # as the desktop, replacing xfdesktop until it exits
+./resolute.sh                    # as your desktop, in place of xfdesktop
 python3 -m resolute --windowed   # in a normal window, for trying it out
-./install.sh               # start it automatically at login (./install.sh --remove to undo)
+./install.sh                     # start it automatically at login
+./install.sh --remove            # stop starting it at login
 ```
 
-"Close desk" at the bottom left of the start menu exits Resolute and brings back the normal XFCE desktop.
+`resolute.sh` closes `xfdesktop`, runs the desk, and brings `xfdesktop` back when the desk exits (for example with "Close desk" in the start menu). `install.sh` adds `~/.config/autostart/resolute.desktop`, which runs `resolute.sh --autostart`: at login the desk starts straight away and, for its first 20 seconds, closes `xfdesktop` if XFCE starts it, so the desk is never covered whichever starts first.
+
+Startup takes about two seconds while the textures and the lamp are rendered.
+
+For development, `python3 -m resolute --screenshot out.png [--open files|documents|programs|note|menu]` renders one frame to a file and exits.
+
+### Hiding the XFCE panel
+
+The desk fills the whole screen. To have XFCE's top panel get out of the way (it reappears when the pointer touches the top edge):
+
+```
+xfconf-query -c xfce4-panel -p /panels/panel-1/autohide-behavior -n -t uint -s 2   # always auto-hide
+xfconf-query -c xfce4-panel -p /panels/panel-1/autohide-behavior -s 0              # back to normal
+```
 
 ## Settings
 
 Optional. Create `~/.config/resolute/config.toml` to override any of these:
 
 ```toml
-documents_dir = "~/Documents"
-files_start_dir = "~"         # where the Files drawer opens
-mail_url = "https://mail.google.com"
-note_file = "~/Documents/desk-note.txt"   # the quill's note paper
+documents_dir = "~/Documents"                # the DOCUMENTS drawer
+files_start_dir = "~"                        # where the FILES drawer opens
+note_file = "~/Documents/desk-note.txt"      # the quill's note paper
+mail_url = "https://mail.google.com"         # the envelope
 text_editor_command = "libreoffice --writer"
 slideshow_command = "libreoffice --impress"
-text_editor_fallback = "mousepad"
-browser_command = ""          # empty = system default browser
-terminal_command = ""         # empty = the desktop's preferred terminal
-disk_path = "/"               # filesystem shown on the storage gauge
-show_hidden_files = false
-stats_interval_ms = 1500
+code_editor_command = "code"                 # VS Code in the PROGRAMS drawer
+text_editor_fallback = "mousepad"            # used when Writer is not installed
+browser_command = ""                         # empty = the system default browser
+homepage = "https://duckduckgo.com"          # opened by the globe if no default browser is found
+terminal_command = ""                        # empty = XFCE's preferred terminal
+disk_path = "/"                              # filesystem shown on the DISK gauge
+show_hidden_files = false                    # dot-files in the drawers
+stats_interval_ms = 1500                     # how often the gauges update
 ```
+
+## How it works with X11
+
+Resolute is an ordinary X11 program, not an X server or window manager. Xorg owns the screen and input, and xfwm4 (XFCE's window manager) arranges windows.
+
+- **Becoming the desktop.** Before its window is shown, the desk sets its window type to `_NET_WM_WINDOW_TYPE_DESKTOP` with `xprop`. xfwm4 then keeps it below every other window, undecorated, on every workspace, and out of Alt+Tab.
+- **The letter slots.** Once a second, a background thread reads the window manager's `_NET_CLIENT_LIST` and `_NET_ACTIVE_WINDOW` from the root window, and each window's title, `WM_CLASS` (used to find its icon), type and state, skipping panels, desktops and its own window.
+- **Switching windows.** Clicking a card asks the window manager to activate or minimise that window through `xdotool`; Resolute never moves other programs' windows itself.
+- **Menus and the note.** The start menu and the audio device menu are Qt pop-ups. The note's editor runs in a hidden window; the desk forwards keys and clicks to it and draws its page onto the writing pad in perspective.
+
+Wayland does not let a program mark itself as the desktop, read other programs' windows or control them in this way, which is why Resolute needs X11.
 
 ## Layout
 
-- `resolute/desk.py`: desk geometry and painting
-- `resolute/gauges.py`: the dashboard gauges
-- `resolute/globe.py`: the spinning globe
-- `resolute/drawers.py`: drawer animation and contents
-- `resolute/startmenu.py`: the start menu
-- `resolute/taskslots.py`, `resolute/windows.py`: open-program cards, read from the window manager with `xprop`, switched with `xdotool`
-- `resolute/clock.py`: the mantel clock and its battery gauge
-- `resolute/lamp.py`, `resolute/pencup.py`, `resolute/note.py`: the stained glass lamp, the pen cup, and the quill with its note paper
+- `resolute.sh`: starts the desk in place of `xfdesktop` (and `--autostart` mode for login)
+- `install.sh`: adds or removes the login entry
+- `resolute/__main__.py`: command-line options (`--windowed`, `--screenshot`, `--open`)
+- `resolute/app.py`: the desk window: scaling, the camera tilt into drawers, input, polling, repainting only what changed
+- `resolute/config.py`: settings and their defaults
+- `resolute/desk.py`: desk geometry and painting: organiser, writing pad, drawers, gauge stand, envelope
+- `resolute/drawers.py`: drawer animation and the FILES, DOCUMENTS and PROGRAMS contents (notepad, slides and the VS Code notebook)
+- `resolute/startmenu.py`: the start menu, application list and power actions
+- `resolute/gauges.py`: the bronze gauges
 - `resolute/radio.py`, `resolute/audio.py`: the radio, controlling audio through `pactl`
-- `resolute/system.py`: stats, launching programs, power actions
-- `resolute/textures.py`: lights the photographed wood and leather in `resolute/assets/` (CC0, see `CREDITS.md`); generates felt and wallpaper
+- `resolute/taskslots.py`, `resolute/windows.py`: open-program cards, read with `xprop`, switched with `xdotool`
+- `resolute/lamp.py`: the stained glass lamp, rendered per pixel with numpy
+- `resolute/globe.py`: the globe, rendered per pixel with numpy
+- `resolute/clock.py`: the mantel clock and its battery gauge
+- `resolute/pencup.py`: the pen cup
+- `resolute/note.py`: the inkwell and quill, and the note paper with its hidden editor
+- `resolute/system.py`: system stats, launching programs, opening files and URLs, power actions
+- `resolute/textures.py`: lights the photographed wood and leather; generates the felt and wallpaper
+- `resolute/assets/`: photographed wood and leather textures (CC0, from ambientCG; see `CREDITS.md`)
+- `*_inspo.*`: the reference images the desk, dials, radio, lamp and clock were modelled on

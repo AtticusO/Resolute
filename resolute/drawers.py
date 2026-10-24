@@ -6,7 +6,7 @@ import shlex
 from pathlib import Path
 
 from PyQt6.QtCore import QPointF, QRectF, Qt
-from PyQt6.QtGui import (QColor, QFont, QFontMetrics, QLinearGradient, QPainter, QPainterPath,
+from PyQt6.QtGui import (QColor, QFont, QFontMetrics, QIcon, QLinearGradient, QPainter, QPainterPath,
                          QPen, QPolygonF, QRadialGradient)
 
 from . import config, desk, system, textures
@@ -380,7 +380,51 @@ def slides_icon(p, rect, kind, lifted):
         p.restore()
 
 
-# --- the two working drawers ----------------------------------------------------
+_code_logo = None
+
+
+def code_icon(p, rect, kind, lifted):
+    """A clothbound notebook in VS Code's blue with the editor's logo set into the cover."""
+    global _code_logo
+    book = QRectF(rect.center().x() - 40, rect.top() + 10, 80, 100)
+    path = QPainterPath()
+    path.addRoundedRect(book, 4, 4)
+    _shadow(p, path, lifted)
+    # page edges showing along the right and bottom
+    p.setPen(Qt.PenStyle.NoPen)
+    p.setBrush(QColor(236, 228, 206))
+    p.drawRoundedRect(book.adjusted(4, 4, 3, 3), 3, 3)
+    g = QLinearGradient(book.topLeft(), book.bottomRight())
+    g.setColorAt(0, QColor(30, 120, 196))
+    g.setColorAt(1, QColor(10, 62, 120))
+    p.setBrush(g)
+    p.drawRoundedRect(book, 4, 4)
+    # darker spine and gold tooling
+    p.setBrush(QColor(8, 40, 84))
+    p.drawRect(QRectF(book.left(), book.top(), 12, book.height()))
+    p.setPen(QPen(QColor(214, 176, 92, 200), 1.2))
+    p.setBrush(Qt.BrushStyle.NoBrush)
+    p.drawRect(book.adjusted(17, 6, -6, -6))
+    for y in (book.top() + 14, book.bottom() - 14):
+        p.drawLine(QPointF(book.left() + 2, y), QPointF(book.left() + 10, y))
+    # the editor's own logo on a cream bookplate
+    plate = QRectF(book.center().x() - 20, book.top() + 22, 46, 46)
+    p.setPen(QPen(QColor(214, 176, 92), 1.2))
+    p.setBrush(QColor(244, 238, 222))
+    p.drawRoundedRect(plate, 4, 4)
+    if _code_logo is None:
+        _code_logo = QIcon.fromTheme("vscode").pixmap(96, 96)
+    if not _code_logo.isNull():
+        p.drawPixmap(plate.adjusted(6, 6, -6, -6), _code_logo, QRectF(_code_logo.rect()))
+    font = QFont(SERIF)
+    font.setPixelSize(11)
+    font.setBold(True)
+    p.setFont(font)
+    p.setPen(QColor(226, 190, 104))
+    p.drawText(QRectF(book.left() + 14, book.bottom() - 26, book.width() - 16, 14), Qt.AlignmentFlag.AlignCenter, "CODE")
+
+
+# --- the working drawers ----------------------------------------------------------
 
 class DocumentsDrawer(Drawer):
     COLS, ROWS = 7, 2
@@ -486,13 +530,14 @@ class ProgramsDrawer(Drawer):
         super().__init__(desk.PROGRAMS_DRAWER, "knob", "PROGRAMS", 260)
         self.notify = notify
         area = self.floor_rect()
-        half = area.width() / 2
         self.items = [
             Item("Text Editor", notepad_icon, self._text_editor),
             Item("Slideshow", slides_icon, self._slideshow),
+            Item("VS Code", code_icon, self._code),
         ]
+        cell = area.width() / len(self.items)
         for i, item in enumerate(self.items):
-            item.rect = QRectF(area.left() + i * half + 6, area.top() + 24, half - 12, 142)
+            item.rect = QRectF(area.left() + i * cell + 2, area.top() + 24, cell - 4, 142)
 
     def _text_editor(self):
         if system.run_command(config.get("text_editor_command")):
@@ -507,6 +552,11 @@ class ProgramsDrawer(Drawer):
             cmd = shlex.split(config.get("slideshow_command"))[0]
             missing = "" if shutil.which(cmd) else f" ({cmd} not found)"
             self.notify(f"The slideshow program couldn't start{missing}: run  sudo apt install libreoffice-impress")
+
+
+    def _code(self):
+        if not system.run_command(config.get("code_editor_command")):
+            self.notify("VS Code couldn't start: is it installed? (set code_editor_command in the settings)")
 
 
 class FilesDrawer(Drawer):

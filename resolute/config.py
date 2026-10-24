@@ -13,6 +13,7 @@ DEFAULTS = {
     "note_file": "~/Documents/desk-note.txt",  # the note paper the quill brings up
     "text_editor_command": "libreoffice --writer",
     "slideshow_command": "libreoffice --impress",
+    "code_editor_command": "code",  # VS Code, in the Programs drawer
     # Used when LibreOffice is not installed.
     "text_editor_fallback": "mousepad",
     "browser_command": "",  # empty = system default browser
