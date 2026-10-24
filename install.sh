@@ -17,7 +17,7 @@ cat > "$autostart" <<EOF
 Type=Application
 Name=Resolute Desk
 Comment=Roll-top desk desktop environment
-Exec=$dir/resolute.sh
+Exec=$dir/resolute.sh --autostart
 OnlyShowIn=XFCE;
 X-GNOME-Autostart-enabled=true
 EOF
