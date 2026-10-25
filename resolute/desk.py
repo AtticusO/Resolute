@@ -52,7 +52,7 @@ N_SLOTS = 11
 GAUGE_STAND = QRectF(745, 380, 430, 104)  # front face; the lit top sits just above it
 GAUGE_RADIUS = 44
 GAUGE_CENTERS = [(807 + i * 102, 432) for i in range(4)]
-RADIO = QRectF(424, 353, 216, 139)  # front face of the radio, back left beside the gauges
+RADIO = QRectF(434.8, 366.7, 194.4, 125.3)  # front face of the radio, back left beside the gauges
 GLOBE_CENTER = (1600, 486)
 GLOBE_RADIUS = 66
 

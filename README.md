@@ -1,6 +1,6 @@
 # Resolute
 
-A desktop environment shaped like a roll-top desk, seen from the chair. It is written in Python 3 with PyQt6 and runs on an XFCE session under X11, taking the place of XFCE's own desktop (`xfdesktop`) while keeping XFCE's window manager, so programs still open in normal windows.
+A desktop environment shaped like a roll-top desk, seen from the chair. It is written in Python 3 with PyQt6 and runs on an XFCE session under X11, taking the place of XFCE's own desktop (`xfdesktop`) while keeping XFCE's window manager, so programs still open in normal windows. At most it consumes just under 300 MB (during initial startup), and runs around just under 200 MB. It has character, personality, and the ability to customize. Use it, change it, play with it. Do anythin but not use it. 
 
 ## On the desk
 
@@ -10,6 +10,7 @@ A desktop environment shaped like a roll-top desk, seen from the chair. It is wr
 | Pad of sticky notes (in front of the lamp) | Press on the pad and drag: a note peels off and comes with the pointer. Let go over the desk top and it lies there; let go over the organiser and it sticks to it. Double-click a note to write on it (click inside it to move the cursor), and press Esc or click anywhere else when you're done. Drag a note to move it; right-click it to write on it or throw it away. Notes are saved in `~/.config/resolute/stickies.json` |
 | Radio (back left, beside the gauges) | Left knob: speaker volume. Right knob: microphone level. Scroll over a knob or drag it up and down to turn it; click it to mute (a red lamp shows when muted). Click the glowing dial to choose which speakers and microphone to use |
 | Bronze gauges (on their stand, back centre) | CPU, RAM, TEMP (CPU temperature) and DISK, updated every 1.5 s. TEMP shows `--°C` with its amber lamp lit when the machine has no temperature sensor (for example in a virtual machine). Hover a gauge for the exact figures |
+| Your name (on the arch over the letter slots) | Your username, lettered in gilt; a long name is set smaller to fit |
 | Letter slots (in the organiser, back centre) | One card per open program, with its icon and title. Click a card to bring that window forward; click the card of the window already in front to minimise it. The front window's card stands taller with a brass edge; minimised ones sit lower. Scroll over the slots if more than 11 programs are open |
 | Pigeon holes (the organiser's cubbies) | Right-click a pigeon hole and choose "Add an application…" to put a program there: it stands in the pigeon hole as a cloth-bound book, coloured after its icon, with its name running down the spine above its logo. Click the book to start the program; right-click it to open it or take it off the shelf. Each pigeon hole holds about four books. They are saved in `~/.config/resolute/shelves.json` |
 | Sealed letter (on the desk, in front of the inkwell) | Opens Gmail in the default browser |
@@ -23,7 +24,7 @@ A desktop environment shaped like a roll-top desk, seen from the chair. It is wr
 
 To add a program to the PROGRAMS drawer, drag it from the start menu, or drag a launcher (`.desktop`) file or a program file (such as an AppImage) from a file manager, onto the drawer. Hold it over the closed drawer for a moment and the drawer slides open; drop it on the drawer front or inside. Each added program sits on a card with its own icon. Right-click a card to open it or take it out of the drawer. The drawer is saved in `~/.config/resolute/programs.json`.
 
-Opening a drawer tilts the view down into it. Click the drawer front again, click anywhere on the desk, or press Esc to close it (while the note is open, Esc puts the note away instead).
+Opening a drawer tilts the view down into it. Click the drawer front again, click anywhere on the desk, or press Esc to close it (while you are writing on a sticky note or the note paper is out, Esc finishes that instead).
 
 ## Requirements
 
@@ -51,7 +52,7 @@ python3 -m resolute --windowed   # in a normal window, for trying it out
 
 `resolute.sh` closes `xfdesktop`, runs the desk, and brings `xfdesktop` back when the desk exits (for example with "Close desk" in the start menu). `install.sh` adds `~/.config/autostart/resolute.desktop`, which runs `resolute.sh --autostart`: at login the desk starts straight away and, for its first 20 seconds, closes `xfdesktop` if XFCE starts it, so the desk is never covered whichever starts first.
 
-Startup takes about two seconds while the textures and the lamp are rendered.
+Startup takes about two seconds while the textures, the lamp and the globe are rendered. Once running, the desk uses about 200 MB of memory.
 
 For development, `python3 -m resolute --screenshot out.png [--open files|documents|programs|note|menu]` renders one frame to a file and exits.
 
@@ -72,7 +73,7 @@ Optional. Create `~/.config/resolute/config.toml` to override any of these:
 documents_dir = "~/Documents"                # the DOCUMENTS drawer
 files_start_dir = "~"                        # where the FILES drawer opens
 note_file = "~/Documents/desk-note.txt"      # the quill's note paper
-mail_url = "https://mail.google.com"         # the envelope
+mail_url = "https://mail.google.com"         # the sealed letter
 text_editor_command = "libreoffice --writer"
 slideshow_command = "libreoffice --impress"
 code_editor_command = "code"                 # VS Code in the PROGRAMS drawer
@@ -85,6 +86,14 @@ show_hidden_files = false                    # dot-files in the drawers
 stats_interval_ms = 1500                     # how often the gauges update
 ```
 
+Resolute also keeps what you set up on the desk in the same folder, so it is there after a restart:
+
+- `programs.json`: programs added to the PROGRAMS drawer
+- `shelves.json`: the books in the pigeon holes
+- `stickies.json`: the sticky notes, with where they are and what is written on them
+
+Delete a file to clear that part of the desk.
+
 ## How it works with X11
 
 Resolute is an ordinary X11 program, not an X server or window manager. Xorg owns the screen and input, and xfwm4 (XFCE's window manager) arranges windows.
@@ -92,7 +101,8 @@ Resolute is an ordinary X11 program, not an X server or window manager. Xorg own
 - **Becoming the desktop.** Before its window is shown, the desk sets its window type to `_NET_WM_WINDOW_TYPE_DESKTOP` with `xprop`. xfwm4 then keeps it below every other window, undecorated, on every workspace, and out of Alt+Tab.
 - **The letter slots.** Once a second, a background thread reads the window manager's `_NET_CLIENT_LIST` and `_NET_ACTIVE_WINDOW` from the root window, and each window's title, `WM_CLASS` (used to find its icon), type and state, skipping panels, desktops and its own window.
 - **Switching windows.** Clicking a card asks the window manager to activate or minimise that window through `xdotool`; Resolute never moves other programs' windows itself.
-- **Menus and the note.** The start menu and the audio device menu are Qt pop-ups. The note's editor runs in a hidden window; the desk forwards keys and clicks to it and draws its page onto the writing pad in perspective.
+- **Menus and the note.** The start menu, the application picker for the pigeon holes and the audio device menu are Qt pop-ups. The note paper and the sticky notes are written with real text editors running in a hidden window; the desk forwards keys and clicks to them and draws their pages onto the desk in perspective.
+- **Dragging programs in.** Dropping onto the PROGRAMS drawer uses the standard X11 drag-and-drop protocol (XDND), so launchers and programs can come from the start menu or from any file manager.
 
 Wayland does not let a program mark itself as the desktop, read other programs' windows or control them in this way, which is why Resolute needs X11.
 
@@ -103,7 +113,7 @@ Wayland does not let a program mark itself as the desktop, read other programs' 
 - `resolute/__main__.py`: command-line options (`--windowed`, `--screenshot`, `--open`)
 - `resolute/app.py`: the desk window: scaling, the camera tilt into drawers, input, polling, repainting only what changed
 - `resolute/config.py`: settings and their defaults
-- `resolute/desk.py`: desk geometry and painting: organiser, writing pad, drawers, gauge stand, envelope (and, in the static layer, the sticky notes lying on the desk top)
+- `resolute/desk.py`: desk geometry and painting: organiser, letter slots, writing pad, drawers, gauge stand, the sealed letter (and, in the static layer, the sticky notes lying on the desk top)
 - `resolute/drawers.py`: drawer animation and the FILES, DOCUMENTS and PROGRAMS contents (notepad, slides, the VS Code notebook and the cards for added programs)
 - `resolute/startmenu.py`: the start menu (its entries can be dragged out), application list and power actions
 - `resolute/gauges.py`: the bronze gauges
@@ -119,4 +129,4 @@ Wayland does not let a program mark itself as the desktop, read other programs' 
 - `resolute/system.py`: system stats, launching programs, opening files and URLs, power actions
 - `resolute/textures.py`: lights the photographed wood and leather; generates the felt and wallpaper
 - `resolute/assets/`: photographed wood and leather textures (CC0, from ambientCG; see `CREDITS.md`)
-- `*_inspo.*`: the reference images the desk, dials, radio, lamp and clock were modelled on
+- `obj_inspo/`: the reference images the desk, dials, radio, lamp and clock were modelled on
