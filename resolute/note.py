@@ -196,7 +196,8 @@ class Note(QObject):
 
     def __init__(self):
         super().__init__()
-        self.path = Path(config.get("note_file")).expanduser()
+        self.default_path = Path(config.get("note_file")).expanduser()  # the quill's own note
+        self.path = self.default_path
         self.visible = False
         self.t = 0.0  # 0 = put away, 1 = lying on the pad
         self.image = None
@@ -271,16 +272,27 @@ class Note(QObject):
         return 1 - (1 - t) ** 3
 
     # -- opening and closing -------------------------------------------------
-    def open_note(self):
+    def open_note(self, path=None):
+        """Lay a page on the pad: the quill's note, or a text file. Returns False if the file isn't plain text."""
+        path = Path(path) if path else self.default_path
+        error = None
         try:
-            text = self.path.read_text(encoding="utf-8")
-            self._show_path()
+            text = path.read_text(encoding="utf-8")
         except FileNotFoundError:
             text = ""
-            self._show_path()
+        except UnicodeDecodeError:
+            return False
         except OSError as e:
-            text = ""
-            self._status = f"Couldn't read {self.path}: {e.strerror}"
+            if path != self.default_path:
+                return False  # never offer a blank page that would be saved over a file we couldn't read
+            text, error = "", f"Couldn't read {path}: {e.strerror}"
+        if self.visible and self._save_timer.isActive():  # finish writing the page that is already out
+            self.save()
+        self.path = path
+        if error:
+            self._status = error
+        else:
+            self._show_path()
         self.edit.blockSignals(True)
         self.edit.setPlainText(text)
         self.edit.blockSignals(False)
@@ -292,6 +304,7 @@ class Note(QObject):
         self._blink.start()
         self._anim.start()
         self._render()
+        return True
 
     def put_away(self):
         if not self.visible:

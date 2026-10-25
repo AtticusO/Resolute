@@ -1,6 +1,8 @@
 """Drawers that slide out towards the viewer and hold clickable items."""
 
+import json
 import math
+import os
 import shutil
 import shlex
 from pathlib import Path
@@ -9,7 +11,7 @@ from PyQt6.QtCore import QPointF, QRectF, Qt
 from PyQt6.QtGui import (QColor, QFont, QFontMetrics, QIcon, QLinearGradient, QPainter, QPainterPath,
                          QPen, QPolygonF, QRadialGradient)
 
-from . import config, desk, system, textures
+from . import config, desk, startmenu, system, textures
 
 SERIF = "C059"
 
@@ -424,14 +426,43 @@ def code_icon(p, rect, kind, lifted):
     p.drawText(QRectF(book.left() + 14, book.bottom() - 26, book.width() - 16, 14), Qt.AlignmentFlag.AlignCenter, "CODE")
 
 
+def app_icon(p, rect, pixmap, lifted):
+    """A cream card with brass corners carrying a program's own icon: an application dropped into the drawer."""
+    card = QRectF(rect.center().x() - 42, rect.top() + 10, 84, 100)
+    path = QPainterPath()
+    path.addRoundedRect(card, 5, 5)
+    _shadow(p, path, lifted)
+    g = QLinearGradient(card.topLeft(), card.bottomRight())
+    g.setColorAt(0, QColor(250, 244, 228))
+    g.setColorAt(1, QColor(222, 208, 178))
+    p.setPen(QPen(QColor(150, 120, 80), 1))
+    p.setBrush(g)
+    p.drawPath(path)
+    p.setPen(QPen(QColor(170, 140, 96, 150), 0.8))
+    p.setBrush(Qt.BrushStyle.NoBrush)
+    p.drawRoundedRect(card.adjusted(5, 5, -5, -5), 3, 3)
+    # brass corner guards
+    p.setPen(Qt.PenStyle.NoPen)
+    p.setBrush(desk.BRASS)
+    for cx, cy, dx, dy in ((card.left(), card.top(), 1, 1), (card.right(), card.top(), -1, 1),
+                           (card.left(), card.bottom(), 1, -1), (card.right(), card.bottom(), -1, -1)):
+        p.drawPolygon(QPolygonF([QPointF(cx, cy), QPointF(cx + 14 * dx, cy), QPointF(cx, cy + 14 * dy)]))
+    if pixmap is not None and not pixmap.isNull():
+        p.setRenderHint(QPainter.RenderHint.SmoothPixmapTransform)
+        p.drawPixmap(QRectF(card.center().x() - 28, card.top() + 16, 56, 56), pixmap, QRectF(pixmap.rect()))
+    p.setPen(QPen(QColor(150, 120, 80, 160), 1))
+    p.drawLine(QPointF(card.left() + 22, card.bottom() - 20), QPointF(card.right() - 22, card.bottom() - 20))
+
+
 # --- the working drawers ----------------------------------------------------------
 
 class DocumentsDrawer(Drawer):
     COLS, ROWS = 7, 2
 
-    def __init__(self, notify):
+    def __init__(self, notify, open_text=None):
         super().__init__(desk.CENTER_DRAWER, "center", "DOCUMENTS", 330)
         self.notify = notify
+        self.open_text = open_text  # lays a .txt file on the writing pad instead of opening an editor
         self.root = Path(config.get("documents_dir"))
         self.cwd = self.root
         self.page = 0
@@ -470,7 +501,8 @@ class DocumentsDrawer(Drawer):
                 item = Item(name, folder_icon, lambda p=path: self._enter(p))
             else:
                 ext = path.suffix.lstrip(".").lower()
-                item = Item(name, paper_icon, lambda p=path: system.open_path(p), ext)
+                opener = self.open_text if ext == "txt" and self.open_text else system.open_path
+                item = Item(name, paper_icon, lambda p=path, o=opener: o(p), ext)
             item.rect = QRectF(area.left() + col * cw + 4, area.top() + row * rh + 6, cw - 8, min(rh - 4, 100))
             self.items.append(item)
 
@@ -526,19 +558,170 @@ class DocumentsDrawer(Drawer):
 
 
 class ProgramsDrawer(Drawer):
+    """The office programs, plus any applications dragged in from the start menu or a file manager."""
+    COLS, ROWS = 4, 2
+    SMALL = 0.8  # icons shrink once the drawer holds more than the three built-in programs
+    SAVED = config.CONFIG_PATH.parent / "programs.json"
+
     def __init__(self, notify):
-        super().__init__(desk.PROGRAMS_DRAWER, "knob", "PROGRAMS", 260)
+        super().__init__(desk.PROGRAMS_DRAWER, "knob", "PROGRAMS", 330)
         self.notify = notify
-        area = self.floor_rect()
-        self.items = [
+        self.builtin = [
             Item("Text Editor", notepad_icon, self._text_editor),
             Item("Slideshow", slides_icon, self._slideshow),
             Item("VS Code", code_icon, self._code),
         ]
-        cell = area.width() / len(self.items)
-        for i, item in enumerate(self.items):
-            item.rect = QRectF(area.left() + i * cell + 2, area.top() + 24, cell - 4, 142)
+        self.added = []
+        self.page = 0
+        self.scale = 1.0
+        self.drop_hint = False
+        try:
+            saved = json.loads(self.SAVED.read_text())
+        except (OSError, ValueError):
+            saved = []
+        for path in saved:
+            item = self._program(Path(path))
+            if item:
+                self.added.append(item)
+        self._layout()
 
+    # -- dropped programs -----------------------------------------------------
+    @staticmethod
+    def droppable(mime):
+        """The launcher files and programs among the dragged files."""
+        paths = []
+        for url in mime.urls() if mime.hasUrls() else ():
+            if url.isLocalFile():
+                path = Path(url.toLocalFile())
+                if path.is_file() and (path.suffix == ".desktop" or os.access(path, os.X_OK)):
+                    paths.append(path)
+        return paths
+
+    def _program(self, path):
+        if path.suffix == ".desktop":
+            entry = startmenu.desktop_entry(path)
+            if entry is None:
+                return None
+            item = Item(entry.name, app_icon, lambda: self._launch(path), startmenu.icon_named(entry.icon).pixmap(112, 112))
+        elif path.is_file() and os.access(path, os.X_OK):
+            item = Item(path.name, app_icon, lambda: self._launch(path),
+                        startmenu.icon_named("application-x-executable").pixmap(112, 112))
+        else:
+            return None
+        item.path = path
+        return item
+
+    def _launch(self, path):
+        ok = system.launch_desktop_file(path) if path.suffix == ".desktop" else system._spawn([str(path)])
+        if not ok:
+            self.notify(f"Couldn't start {path.name}")
+
+    def add(self, paths):
+        have = {str(i.path): i.name for i in self.added}
+        names, already, rejected = [], [], []
+        for path in paths:
+            if str(path) in have:
+                already.append(have[str(path)])
+                continue
+            item = self._program(path)
+            if item is None:
+                rejected.append(path.name)
+                continue
+            self.added.append(item)
+            have[str(path)] = item.name
+            names.append(item.name)
+        if names:
+            self._save()
+            self._layout()
+            self.page = self.pages() - 1  # show where they went
+            self._layout()
+        notes = []
+        if names:
+            notes.append(f"Added {names[0]} to the PROGRAMS drawer" if len(names) == 1
+                         else f"Added {len(names)} programs to the PROGRAMS drawer")
+        if already:
+            notes.append(f"{', '.join(already)} {'is' if len(already) == 1 else 'are'} already in the drawer")
+        if rejected:
+            notes.append(f"{', '.join(rejected)} {'is not a program' if len(rejected) == 1 else 'are not programs'}")
+        if notes:
+            self.notify("; ".join(notes))
+
+    def remove(self, item):
+        self.added.remove(item)
+        self._save()
+        self._layout()
+        self.notify(f"Took {item.name} out of the PROGRAMS drawer")
+
+    def _save(self):
+        try:
+            self.SAVED.parent.mkdir(parents=True, exist_ok=True)
+            self.SAVED.write_text(json.dumps([str(i.path) for i in self.added], indent=1))
+        except OSError as e:
+            self.notify(f"Couldn't save the PROGRAMS drawer: {e.strerror or e}")
+
+    # -- layout ------------------------------------------------------------
+    def pages(self):
+        n = len(self.builtin) + len(self.added)
+        return 1 if n <= 3 else math.ceil(n / (self.COLS * self.ROWS))
+
+    def _layout(self):
+        programs = self.builtin + self.added
+        area = self.floor_rect()
+        self.page = min(self.page, self.pages() - 1)
+        if len(programs) <= 3:  # just the built-in programs: full size in one row
+            self.scale = 1.0
+            self.items = programs
+            cell = area.width() / 3
+            for i, item in enumerate(programs):
+                item.rect = QRectF(area.left() + i * cell + 2, area.top() + 24, cell - 4, 142)
+            return
+        self.scale = self.SMALL
+        per = self.COLS * self.ROWS
+        self.items = programs[self.page * per:(self.page + 1) * per]
+        cw = area.width() / self.COLS
+        rh = (area.height() - 26) / self.ROWS
+        for i, item in enumerate(self.items):
+            col, row = i % self.COLS, i // self.COLS
+            item.rect = QRectF(area.left() + col * cw + 2, area.top() + 4 + row * rh, cw - 4, rh - 6)
+
+    def wheel(self, steps):
+        new = max(0, min(self.pages() - 1, self.page + steps))
+        if new != self.page:
+            self.page = new
+            self._layout()
+
+    def paint_contents(self, p):
+        area = self.floor_rect()
+        for item in self.items:
+            lifted = item is self.hover_item
+            r = item.rect.translated(0, -4 if lifted else 0)
+            if self.scale == 1.0:
+                item.icon(p, r, item.kind, lifted)
+            else:
+                p.save()
+                p.translate(r.center().x(), r.top())
+                p.scale(self.scale, self.scale)
+                w = r.width() / self.scale
+                item.icon(p, QRectF(-w / 2, 0, w, r.height() / self.scale), item.kind, lifted)
+                p.restore()
+            _label(p, item, lifted)
+        font = QFont(SERIF)
+        font.setPixelSize(13)
+        font.setItalic(True)
+        p.setFont(font)
+        p.setPen(QColor(240, 224, 196, 190))
+        foot = QRectF(area.left(), area.bottom() - 24, area.width(), 22)
+        if len(self.items) == len(self.builtin) + len(self.added) == 3:
+            p.drawText(foot.translated(0, -40), Qt.AlignmentFlag.AlignCenter,
+                       "Drag programs here from the start menu or a file manager")
+        elif self.pages() > 1:
+            p.drawText(foot, Qt.AlignmentFlag.AlignCenter, f"scroll for more  \u2022  {self.page + 1} / {self.pages()}")
+        if self.drop_hint:
+            p.setPen(QPen(desk.BRASS_LIGHT, 2, Qt.PenStyle.DashLine))
+            p.setBrush(QColor(255, 230, 160, 28))
+            p.drawRoundedRect(area.adjusted(-4, -2, 4, 2), 8, 8)
+
+    # -- the built-in programs ------------------------------------------------
     def _text_editor(self):
         if system.run_command(config.get("text_editor_command")):
             return
@@ -552,7 +735,6 @@ class ProgramsDrawer(Drawer):
             cmd = shlex.split(config.get("slideshow_command"))[0]
             missing = "" if shutil.which(cmd) else f" ({cmd} not found)"
             self.notify(f"The slideshow program couldn't start{missing}: run  sudo apt install libreoffice-impress")
-
 
     def _code(self):
         if not system.run_command(config.get("code_editor_command")):

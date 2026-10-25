@@ -8,7 +8,7 @@ from types import SimpleNamespace
 
 from PyQt6.QtCore import QPointF, QRectF, Qt
 from PyQt6.QtGui import (QColor, QConicalGradient, QFont, QFontMetrics, QLinearGradient, QPainter,
-                         QPainterPath, QPen, QPolygonF, QRadialGradient, QTransform)
+                         QPainterPath, QPainterPathStroker, QPen, QPolygonF, QRadialGradient, QTransform)
 
 from . import desk, textures
 
@@ -29,6 +29,18 @@ KNOB_R = 17
 VOLUME_KNOB = QPointF(PANEL.left() + 28, PANEL.top() + 21)
 INPUT_KNOB = QPointF(PANEL.right() - 28, PANEL.top() + 21)
 DIAL = QRectF(PANEL.left() + 56, PANEL.top() + 5, PANEL.width() - 112, PANEL.height() - 10)
+
+
+def front_path():
+    """The part of the radio standing in front of the organiser (cabinet and aerial), in scene coordinates."""
+    path = QPainterPath()
+    path.addRect(R.adjusted(0, -10, 0, 6))
+    aerial = QPainterPath(QPointF(R.left() + 30, R.top() - 4))
+    aerial.lineTo(QPointF(R.left() - 66, R.top() - 168))
+    stroker = QPainterPathStroker()
+    stroker.setWidth(5)
+    path = path.united(stroker.createStroke(aerial))
+    return TO_SCENE.map(path)
 
 
 def paint_cabinet(p: QPainter):

@@ -7,8 +7,8 @@ import shutil
 import socket
 from pathlib import Path
 
-from PyQt6.QtCore import QSize, Qt, pyqtSignal
-from PyQt6.QtGui import QIcon
+from PyQt6.QtCore import QMimeData, QPoint, QSize, Qt, QUrl, pyqtSignal
+from PyQt6.QtGui import QDrag, QIcon
 from PyQt6.QtWidgets import (QFrame, QHBoxLayout, QLabel, QLineEdit, QListWidget, QListWidgetItem,
                              QMessageBox, QPushButton, QVBoxLayout, QWidget)
 
@@ -76,6 +76,33 @@ def _category(cats):
     return "Other"
 
 
+def _parse(path):
+    """Read a launcher (.desktop) file: its [Desktop Entry] section, or None if it can't be read."""
+    cp = configparser.ConfigParser(interpolation=None, strict=False)
+    cp.optionxform = str
+    try:
+        cp.read(path, encoding="utf-8")
+        return cp["Desktop Entry"]
+    except (configparser.Error, KeyError, UnicodeDecodeError, OSError):
+        return None
+
+
+def _entry(path, e):
+    cats = {c for c in e.get("Categories", "").split(";") if c}
+    exec_words = e.get("Exec", "").split()
+    return AppEntry(path, e.get("Name", path.stem), e.get("Comment", ""),
+                    e.get("Icon", ""), _category(cats), e.get("Keywords", ""),
+                    e.get("StartupWMClass", ""), os.path.basename(exec_words[0]) if exec_words else "")
+
+
+def desktop_entry(path):
+    """The application a launcher file starts, or None if it isn't an application launcher."""
+    e = _parse(path)
+    if e is None or e.get("Type") != "Application":
+        return None
+    return _entry(Path(path), e)
+
+
 def load_applications():
     desktop_env = {d for d in os.environ.get("XDG_CURRENT_DESKTOP", "XFCE").split(":") if d}
     seen = {}
@@ -87,12 +114,8 @@ def load_applications():
             if file_id in seen:  # earlier directories take priority
                 continue
             seen[file_id] = None
-            cp = configparser.ConfigParser(interpolation=None, strict=False)
-            cp.optionxform = str
-            try:
-                cp.read(path, encoding="utf-8")
-                e = cp["Desktop Entry"]
-            except (configparser.Error, KeyError, UnicodeDecodeError, OSError):
+            e = _parse(path)
+            if e is None:
                 continue
             if e.get("Type") != "Application" or e.get("NoDisplay") == "true" or e.get("Hidden") == "true":
                 continue
@@ -103,11 +126,7 @@ def load_applications():
             try_exec = e.get("TryExec")
             if try_exec and not shutil.which(try_exec):
                 continue
-            cats = {c for c in e.get("Categories", "").split(";") if c}
-            exec_words = e.get("Exec", "").split()
-            seen[file_id] = AppEntry(path, e.get("Name", path.stem), e.get("Comment", ""),
-                                     e.get("Icon", ""), _category(cats), e.get("Keywords", ""),
-                                     e.get("StartupWMClass", ""), os.path.basename(exec_words[0]) if exec_words else "")
+            seen[file_id] = _entry(path, e)
     apps = [a for a in seen.values() if a]
     apps.sort(key=lambda a: a.name.lower())
     return apps
@@ -125,7 +144,7 @@ def icon_for_window(wm_instance, wm_class, _index={}):
         k = key.lower()
         name = _index.get(k) or _index.get(k.split(".")[-1]) or _index.get(k.split("-")[0])
         if name:
-            return _icon(name)
+            return icon_named(name)
     for key in (wm_instance, wm_class):
         icon = QIcon.fromTheme(key.lower())
         if key and not icon.isNull():
@@ -133,13 +152,35 @@ def icon_for_window(wm_instance, wm_class, _index={}):
     return QIcon.fromTheme("application-x-executable")
 
 
-def _icon(name):
+def icon_named(name):
     if not name:
         return QIcon.fromTheme("application-x-executable")
     if os.path.isabs(name):
         return QIcon(name)
     icon = QIcon.fromTheme(name)
     return icon if not icon.isNull() else QIcon.fromTheme("application-x-executable")
+
+
+class _AppList(QListWidget):
+    """The application list. Entries can be dragged out onto the desk as launcher files."""
+
+    def mimeTypes(self):
+        return ["text/uri-list"]
+
+    def mimeData(self, items):
+        data = QMimeData()
+        data.setUrls([QUrl.fromLocalFile(it.data(Qt.ItemDataRole.UserRole)) for it in items])
+        return data
+
+    def startDrag(self, actions):
+        item = self.currentItem()
+        if item is None:
+            return
+        drag = QDrag(self)
+        drag.setMimeData(self.mimeData([item]))
+        drag.setPixmap(item.icon().pixmap(48, 48))  # carry just the icon, not the whole highlighted row
+        drag.setHotSpot(QPoint(24, 24))
+        drag.exec(Qt.DropAction.CopyAction)  # a copy, so the entry stays in the list
 
 
 class StartMenu(QFrame):
@@ -179,8 +220,10 @@ class StartMenu(QFrame):
         self.categories = QListWidget(objectName="Categories")
         self.categories.setFixedWidth(160)
         self.categories.currentRowChanged.connect(lambda _: self._filter())
-        self.app_list = QListWidget()
+        self.app_list = _AppList()
         self.app_list.setIconSize(QSize(22, 22))
+        self.app_list.setDragEnabled(True)
+        self.app_list.setDragDropMode(QListWidget.DragDropMode.DragOnly)
         self.app_list.itemActivated.connect(self._launch_item)
         self.app_list.itemClicked.connect(self._launch_item)
         lists.addWidget(self.categories)
@@ -243,7 +286,7 @@ class StartMenu(QFrame):
             elif cat != "All" and app.category != cat:
                 continue
             if app.icon not in self._icons:
-                self._icons[app.icon] = _icon(app.icon)
+                self._icons[app.icon] = icon_named(app.icon)
             it = QListWidgetItem(self._icons[app.icon], app.name)
             it.setToolTip(app.comment)
             it.setData(Qt.ItemDataRole.UserRole, str(app.path))
@@ -273,3 +316,74 @@ class StartMenu(QFrame):
         self.hide()
         if self._confirm("Close the Resolute desk? Your open programs stay running.", "Close desk"):
             self.quit_requested.emit()
+
+
+class AppPicker(QFrame):
+    """A small pop-up list of the installed applications to choose one from."""
+    picked = pyqtSignal(str)  # the launcher file of the chosen application
+
+    def __init__(self, title, parent=None):
+        super().__init__(parent, Qt.WindowType.Popup | Qt.WindowType.FramelessWindowHint)
+        self.setObjectName("StartMenu")
+        self.setStyleSheet(STYLE)
+        self.setFixedSize(380, 480)
+        self.apps = []
+        self._icons = {}
+        outer = QVBoxLayout(self)
+        outer.setContentsMargins(0, 0, 0, 0)
+        outer.setSpacing(0)
+        header = QWidget(objectName="Header")
+        hl = QVBoxLayout(header)
+        hl.setContentsMargins(16, 10, 16, 8)
+        self.title = QLabel(title, objectName="Subtitle")
+        hl.addWidget(self.title)
+        outer.addWidget(header)
+        body = QVBoxLayout()
+        body.setContentsMargins(12, 10, 12, 12)
+        body.setSpacing(8)
+        self.search = QLineEdit(placeholderText="Search applications…")
+        self.search.textChanged.connect(self._filter)
+        self.search.returnPressed.connect(self._pick_first)
+        body.addWidget(self.search)
+        self.app_list = QListWidget()
+        self.app_list.setIconSize(QSize(22, 22))
+        self.app_list.itemActivated.connect(self._pick)
+        self.app_list.itemClicked.connect(self._pick)
+        body.addWidget(self.app_list, 1)
+        outer.addLayout(body, 1)
+
+    def popup_at(self, global_pos, title=None):
+        if title:
+            self.title.setText(title)
+        self.apps = load_applications()
+        self.search.clear()
+        self._filter()
+        screen = self.screen().availableGeometry() if self.screen() else None
+        x, y = global_pos.x(), global_pos.y()
+        if screen:
+            x = max(screen.left(), min(x, screen.right() - self.width()))
+            y = max(screen.top(), min(y, screen.bottom() - self.height()))
+        self.move(x, y)
+        self.show()
+        self.search.setFocus()
+
+    def _filter(self):
+        text = self.search.text().strip().lower()
+        self.app_list.clear()
+        for app in self.apps:
+            if text and not all(word in app.search for word in text.split()):
+                continue
+            if app.icon not in self._icons:
+                self._icons[app.icon] = icon_named(app.icon)
+            it = QListWidgetItem(self._icons[app.icon], app.name)
+            it.setToolTip(app.comment)
+            it.setData(Qt.ItemDataRole.UserRole, str(app.path))
+            self.app_list.addItem(it)
+
+    def _pick(self, item):
+        self.hide()
+        self.picked.emit(item.data(Qt.ItemDataRole.UserRole))
+
+    def _pick_first(self):
+        if self.app_list.count():
+            self._pick(self.app_list.item(0))

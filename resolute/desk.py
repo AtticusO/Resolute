@@ -4,6 +4,8 @@ Everything is drawn on a fixed 1920-wide scene. The screen shows the top 1080 ro
 (below the front edge) comes into view when the camera tilts down into an open drawer.
 """
 
+import getpass
+
 from PyQt6.QtCore import QPointF, QRectF, Qt
 from PyQt6.QtGui import (QBrush, QColor, QFont, QFontMetrics, QImage, QLinearGradient, QPainter, QPainterPath,
                          QPen, QPolygonF, QRadialGradient, QTransform)
@@ -371,17 +373,22 @@ def _organizer(p):
     p.setPen(QPen(QColor(255, 200, 150, 60), 1.5))
     p.setBrush(Qt.BrushStyle.NoBrush)
     p.drawPath(arch)
-    # gilt lettering
+    # gilt lettering: the owner's name, made smaller if it is long
+    name = getpass.getuser().upper()
     font = QFont("C059")
-    font.setPixelSize(22)
     font.setBold(True)
     font.setLetterSpacing(QFont.SpacingType.PercentageSpacing, 160)
+    for size in range(22, 11, -1):
+        font.setPixelSize(size)
+        if QFontMetrics(font).horizontalAdvance(name) <= valance.width() - 80:
+            break
     p.setFont(font)
-    text_box = QRectF(valance.left(), valance.top() + 4, valance.width(), 30)
+    text_box = QRectF(valance.left() + 40, valance.top() + 4, valance.width() - 80, 30)
+    name = QFontMetrics(font).elidedText(name, Qt.TextElideMode.ElideRight, int(text_box.width()))
     p.setPen(QColor(0, 0, 0, 150))
-    p.drawText(text_box.translated(1, 1.5), Qt.AlignmentFlag.AlignCenter, "RESOLUTE")
+    p.drawText(text_box.translated(1, 1.5), Qt.AlignmentFlag.AlignCenter, name)
     p.setPen(QColor(222, 180, 92))
-    p.drawText(text_box, Qt.AlignmentFlag.AlignCenter, "RESOLUTE")
+    p.drawText(text_box, Qt.AlignmentFlag.AlignCenter, name)
     p.restore()
 
     # row of small drawers along the bottom
@@ -619,13 +626,16 @@ def paint_gauge_stand(p, gauges):
         g.paint_static(p)
 
 
-def paint_static(p, gauges, globe):
+def paint_static(p, gauges, globe, on_desk=None):
+    """The unchanging layer. on_desk(p) draws whatever lies flat on the desk top, under the objects standing on it."""
     _room(p)
     _tambour(p)
     _organizer(p)
     _surface(p)
     _side_panel(p, mirror=False)
     _side_panel(p, mirror=True)
+    if on_desk:
+        on_desk(p)
 
     # objects standing on the desk, each with a reflection and a contact shadow
     stand_area = QRectF(GAUGE_STAND.left() - 10, GAUGE_STAND.top() - 16, GAUGE_STAND.width() + 20, GAUGE_STAND.height() + 34)
