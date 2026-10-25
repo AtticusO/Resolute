@@ -75,13 +75,22 @@ def _material(name, tint=(1.0, 1.0, 1.0), brightness=1.0, relief=0.6, sheen=0.12
         diffuse = np.clip(normal @ _LIGHT, 0, 1) / _LIGHT[2]  # 1.0 on a flat patch
         spec = (1 - rough) ** 2 * np.clip(normal @ _HALF, 0, 1) ** 24 * sheen
         rgb = color * np.array(tint) * brightness * diffuse[..., None] + spec[..., None] * np.array([1.0, 0.9, 0.78])
-        _cache[key] = rgb * 255
+        # kept as 8-bit colour, which is all the pixmaps use: 3 MB instead of 24 MB of floats per material
+        _cache[key] = np.clip(rgb * 255, 0, 255).astype(np.uint8)
     return _cache[key]
 
 
-def _pixmap(key, rgb, vertical=False):
+def drop_sources():
+    """Forget the lit materials once their pixmaps are made; a missing pixmap would simply relight one."""
+    for key in [k for k in _cache if k[0] == "material"]:
+        del _cache[key]
+
+
+def _pixmap(key, light, vertical=False):
+    """A cached pixmap; light() makes the material only when the pixmap isn't cached yet."""
     k = (key, vertical)
     if k not in _cache:
+        rgb = light()
         _cache[k] = _to_pixmap(np.rot90(rgb) if vertical else rgb)
     return _cache[k]
 
@@ -92,27 +101,27 @@ _DESK = dict(tint=(1.1, 0.96, 0.9), brightness=1.05)
 
 def desk_wood(vertical=False):
     """The desk's main wood: drawer fronts, frame, sides, organiser."""
-    return _pixmap("desk_wood", _material("desk_wood", **_DESK), vertical)
+    return _pixmap("desk_wood", lambda: _material("desk_wood", **_DESK), vertical)
 
 
 def desk_top():
     """The writing surface: same boards, with a little less relief since it is seen at a low angle."""
-    return _pixmap("desk_top", _material("desk_wood", relief=0.4, sheen=0.08, **_DESK))
+    return _pixmap("desk_top", lambda: _material("desk_wood", relief=0.4, sheen=0.08, **_DESK))
 
 
 def desk_wood_dark(vertical=False):
     """Shadowed interior wood for the back of the roll-top and the drawer boxes."""
-    return _pixmap("desk_wood_dark", _material("desk_wood", tint=_DESK["tint"], brightness=0.45, sheen=0.04), vertical)
+    return _pixmap("desk_wood_dark", lambda: _material("desk_wood", tint=_DESK["tint"], brightness=0.45, sheen=0.04), vertical)
 
 
 def stand_wood():
     """Lighter, plainer wood for the gauge stand so it reads as a separate object."""
-    return _pixmap("stand_wood", _material("stand_wood", tint=(1.18, 0.98, 0.84), brightness=1.35, sheen=0.1))
+    return _pixmap("stand_wood", lambda: _material("stand_wood", tint=(1.18, 0.98, 0.84), brightness=1.35, sheen=0.1))
 
 
 def leather():
     """Oxblood leather for the writing pad."""
-    return _pixmap("leather", _material("leather", tint=(1.0, 0.6, 0.56), brightness=0.82, relief=0.8, sheen=0.06))
+    return _pixmap("leather", lambda: _material("leather", tint=(1.0, 0.6, 0.56), brightness=0.82, relief=0.8, sheen=0.06))
 
 
 def wallpaper():

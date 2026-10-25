@@ -47,7 +47,6 @@ def _cubbies():
 CUBBIES = _cubbies()
 SLOTS = QRectF(708, 148, 504, 208)  # the upright letter slots in the middle: one per open program
 N_SLOTS = 11
-MAIL_CUBBY = CUBBIES[2]  # top row of the left block, nearest the centre
 
 # the gauge stand sits back against the organiser, in front of its middle drawers
 GAUGE_STAND = QRectF(745, 380, 430, 104)  # front face; the lit top sits just above it
@@ -99,11 +98,11 @@ def bevel(p, rect, brush, depth=3, radius=0, light=60, dark=120):
     p.restore()
 
 
-def inset(p, rect, alpha=190):
-    """A shadowed recess (cubby, drawer cavity)."""
+def inset(p, rect, alpha=190, lining=None):
+    """A shadowed recess (cubby, drawer cavity), optionally lined with a texture."""
     p.save()
     p.setPen(Qt.PenStyle.NoPen)
-    p.setBrush(QColor(12, 5, 2))
+    p.setBrush(QColor(12, 5, 2) if lining is None else lining)
     p.drawRect(rect)
     g = QLinearGradient(rect.left(), rect.top(), rect.left(), rect.bottom())
     g.setColorAt(0, QColor(0, 0, 0, alpha))
@@ -336,16 +335,38 @@ def _organizer(p):
     bevel(p, o, _tex(textures.desk_wood(), 31, 0), depth=4)
     blocks = [QRectF(o.left() + 14, o.top() + 14, 466, 282), QRectF(o.right() - 480, o.top() + 14, 466, 282)]
     for cell in CUBBIES:
-        inset(p, cell)
-        # inner shadow cast by the shelf above
-        p.fillRect(QRectF(cell.left(), cell.top(), cell.width(), 10), QColor(0, 0, 0, 90))
+        inset(p, cell, alpha=140, lining=_tex(textures.felt()))  # lined with the same baize as the drawers
+        p.fillRect(cell, QColor(0, 0, 0, 70))  # deeper in, so a little darker than an open drawer
+        # soft shadow cast by the shelf above, fading into the baize rather than a dark band
+        g = QLinearGradient(0, cell.top(), 0, cell.top() + 28)
+        g.setColorAt(0, QColor(0, 0, 0, 120))
+        g.setColorAt(1, QColor(0, 0, 0, 0))
+        p.fillRect(QRectF(cell.left(), cell.top(), cell.width(), 28), g)
 
     # centre: arched valance over upright letter slots, after desk_inspo2.jpeg
     centre = QRectF(blocks[0].right() + 14, o.top() + 14, blocks[1].left() - blocks[0].right() - 28, 282)
     slots = SLOTS
-    inset(p, slots)
     n_slots = N_SLOTS
     sw = slots.width() / n_slots
+    # the back panel: the desk's own wood, set well back, so it is darker than the dividers in front of it
+    inset(p, slots, alpha=170, lining=_tex(textures.desk_wood(vertical=True), 23, 5))
+    p.fillRect(slots, QColor(0, 0, 0, 105))
+    g = QLinearGradient(0, slots.top(), 0, slots.top() + 46)  # shadow of the arched valance overhead
+    g.setColorAt(0, QColor(0, 0, 0, 150))
+    g.setColorAt(1, QColor(0, 0, 0, 0))
+    p.fillRect(QRectF(slots.left(), slots.top(), slots.width(), 46), g)
+    for i in range(n_slots):
+        x0, x1 = slots.left() + i * sw + 3, slots.left() + (i + 1) * sw - 3
+        # each divider throws a shadow to its right, away from the lamp on the left
+        g = QLinearGradient(x0, 0, x0 + 14, 0)
+        g.setColorAt(0, QColor(0, 0, 0, 140))
+        g.setColorAt(1, QColor(0, 0, 0, 0))
+        p.fillRect(QRectF(x0, slots.top(), 14, slots.height()), g)
+        # and the far corner, where the back meets the next divider, is a little darker
+        g = QLinearGradient(x1, 0, x1 - 6, 0)
+        g.setColorAt(0, QColor(0, 0, 0, 80))
+        g.setColorAt(1, QColor(0, 0, 0, 0))
+        p.fillRect(QRectF(x1 - 6, slots.top(), 6, slots.height()), g)
     p.save()
     p.setRenderHint(QPainter.RenderHint.Antialiasing)
     for i in range(n_slots):
@@ -667,51 +688,105 @@ def paint_static(p, gauges, globe, on_desk=None):
     _body(p)
 
 
-def envelope_rect(hover=0.0):
-    c = MAIL_CUBBY
-    return QRectF(c.left() + 12, c.bottom() - 84 - 10 * hover, c.width() - 24, 82)
+# The sealed letter lies on the desk top in front of the inkwell (flat desk-top coordinates, as SURFACE_WORLD).
+ENVELOPE_CENTER = QPointF(1688, 352)
+ENVELOPE_SIZE = (214, 136)
+ENVELOPE_ANGLE = -8.0  # dropped a little askew
+_ENV_IMG = (428, 272)  # resolution the letter is drawn at before it is laid onto the desk
+_env_image = None
+
+
+def envelope_transform(hover=0.0):
+    """Letter pixels -> scene: flat on the desk, tipped a little towards the viewer, lifting under the pointer."""
+    w, h = ENVELOPE_SIZE
+    iw, ih = _ENV_IMG
+    t = QTransform()
+    t.translate(ENVELOPE_CENTER.x(), ENVELOPE_CENTER.y())
+    t.rotate(ENVELOPE_ANGLE)
+    t.translate(-w / 2, -h / 2)
+    t.scale(w / iw, h / ih)
+    flat = (t * surface_transform()).map(QPolygonF(QRectF(0, 0, iw, ih)))
+    tl, tr, br, bl = flat[0], flat[1], flat[2], flat[3]
+    up = (br - bl)
+    height = (up.x() ** 2 + up.y() ** 2) ** 0.5 * ih / iw * 0.8
+    upright = 0.25 + 0.1 * hover
+    lift = QPointF(0, -5 * hover)
+    quad = QPolygonF([tl + (QPointF(bl.x(), bl.y() - height) - tl) * upright + lift,
+                      tr + (QPointF(br.x(), br.y() - height) - tr) * upright + lift, br + lift, bl + lift])
+    out = QTransform()
+    QTransform.quadToQuad(QPolygonF(QRectF(0, 0, iw, ih)), quad, out)
+    return out
+
+
+def envelope_polygon(hover=0.0):
+    return envelope_transform(hover).map(QPolygonF(QRectF(0, 0, *_ENV_IMG)))
+
+
+def envelope_bounds():
+    """Scene area the letter, its shadow and its hover lift can cover."""
+    return envelope_polygon(1.0).boundingRect().united(envelope_polygon().boundingRect()).adjusted(-10, -10, 16, 16)
 
 
 def envelope_contains(pt):
-    return envelope_rect().adjusted(-4, -14, 4, 2).contains(pt)
+    return envelope_polygon().containsPoint(pt, Qt.FillRule.OddEvenFill)
 
 
-def paint_envelope(p, hover):
-    """A sealed letter leaning in its cubby; it slides up a little under the pointer."""
-    r = envelope_rect(hover)
-    p.save()
+def _envelope_face():
+    """The back of a sealed letter: cream paper, the flap, and a red wax seal."""
+    iw, ih = _ENV_IMG
+    img = QImage(iw, ih, QImage.Format.Format_ARGB32_Premultiplied)
+    img.fill(Qt.GlobalColor.transparent)
+    p = QPainter(img)
     p.setRenderHint(QPainter.RenderHint.Antialiasing)
-    p.translate(r.center())
-    p.rotate(-3)
-    p.translate(-r.center())
-    p.setPen(Qt.PenStyle.NoPen)
-    p.setBrush(QColor(0, 0, 0, 120))
-    p.drawRect(r.translated(4, 4))
+    r = QRectF(1, 1, iw - 2, ih - 2)
     g = QLinearGradient(r.topLeft(), r.bottomRight())
-    g.setColorAt(0, QColor(236, 226, 200))
-    g.setColorAt(1, QColor(196, 182, 150))
-    p.setPen(QPen(QColor(120, 104, 80), 0.8))
+    g.setColorAt(0, QColor(240, 231, 206))
+    g.setColorAt(1, QColor(204, 190, 158))
+    p.setPen(QPen(QColor(120, 104, 80), 3.6))
     p.setBrush(g)
     p.drawRect(r)
-    # back flap
     flap = QPolygonF([r.topLeft(), r.topRight(), QPointF(r.center().x(), r.top() + r.height() * 0.55)])
-    p.setBrush(QColor(222, 210, 180))
+    p.setBrush(QColor(226, 214, 184))
     p.drawPolygon(flap)
-    p.setPen(QPen(QColor(120, 104, 80, 120), 0.8))
+    p.setPen(QPen(QColor(120, 104, 80, 130), 3.6))
     p.drawLine(r.bottomLeft(), QPointF(r.center().x(), r.top() + r.height() * 0.5))
     p.drawLine(r.bottomRight(), QPointF(r.center().x(), r.top() + r.height() * 0.5))
-    # red wax seal
     seal = QPointF(r.center().x(), r.top() + r.height() * 0.55)
-    sg = QRadialGradient(seal - QPointF(3, 3), 14)
+    sr = r.height() * 0.15
+    sg = QRadialGradient(seal - QPointF(sr * 0.25, sr * 0.25), sr * 1.2)
     sg.setColorAt(0, QColor(220, 60, 50))
     sg.setColorAt(1, QColor(110, 12, 8))
     p.setPen(Qt.PenStyle.NoPen)
     p.setBrush(sg)
-    p.drawEllipse(seal, 12, 11)
-    p.setPen(QPen(QColor(255, 160, 140, 120), 1))
+    p.drawEllipse(seal, sr, sr * 0.92)
+    p.setPen(QPen(QColor(255, 160, 140, 120), 3))
     p.setBrush(Qt.BrushStyle.NoBrush)
-    p.drawEllipse(seal, 7, 6.5)
-    if hover > 0:
-        p.setPen(QPen(QColor(255, 214, 140, int(160 * hover)), 2))
-        p.drawRect(r.adjusted(-2, -2, 2, 2))
+    p.drawEllipse(seal, sr * 0.58, sr * 0.54)
+    p.end()
+    return img
+
+
+def paint_envelope(p, hover):
+    """A sealed letter lying in front of the inkwell; it lifts a little under the pointer."""
+    global _env_image
+    if _env_image is None:
+        _env_image = _envelope_face()
+    poly = envelope_polygon(hover)
+    p.save()
+    p.setRenderHint(QPainter.RenderHint.Antialiasing)
+    p.setRenderHint(QPainter.RenderHint.SmoothPixmapTransform)
+    p.setPen(Qt.PenStyle.NoPen)
+    for i, a in enumerate((90, 40)):  # its shadow on the desk, longer when lifted
+        d = QPointF(3 + 4 * hover + i * 2, 4 + 6 * hover + i * 2)
+        p.setBrush(QColor(0, 0, 0, a))
+        p.drawPolygon(QPolygonF([q + d for q in envelope_polygon()]))
+    p.setTransform(envelope_transform(hover), True)
+    p.drawImage(QRectF(0, 0, *_ENV_IMG), _env_image)
     p.restore()
+    if hover > 0:
+        p.save()
+        p.setRenderHint(QPainter.RenderHint.Antialiasing)
+        p.setPen(QPen(QColor(255, 214, 140, int(160 * hover)), 2))
+        p.setBrush(Qt.BrushStyle.NoBrush)
+        p.drawPolygon(poly)
+        p.restore()

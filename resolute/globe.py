@@ -8,7 +8,7 @@ from PyQt6.QtGui import (QColor, QImage, QLinearGradient, QPainter, QPainterPath
                          QPolygonF, QRadialGradient)
 
 TILT = math.radians(23.5)
-FRAMES = 120
+FRAMES = 240
 
 # Coarse coastlines as (lon, lat) polygons. Good enough for a 60px globe.
 LAND = [
@@ -81,7 +81,7 @@ class Globe:
         self.cx, self.cy = center
         self.r = radius
         self.frame = 0.0
-        self.speed = 0.15  # frames per tick when idle
+        self.speed = 0.3  # frames per tick when idle
         self.hover = False
         self._frames = []
         self._px = 0
@@ -134,7 +134,7 @@ class Globe:
             QRectF(self.cx - self.r * 0.8, self.cy, self.r * 1.6, self.r * 1.9).contains(pt)
 
     def step(self):
-        target = 0.9 if self.hover else 0.15
+        target = 1.8 if self.hover else 0.3  # twice the frames of old, so twice as many per tick for the same pace
         self.speed += (target - self.speed) * 0.08
         self.frame = (self.frame + self.speed) % FRAMES
         return True
@@ -176,7 +176,13 @@ class Globe:
         p.setRenderHint(QPainter.RenderHint.Antialiasing)
         p.setRenderHint(QPainter.RenderHint.SmoothPixmapTransform)
         if self._frames:
-            p.drawImage(QRectF(cx - r, cy - r, 2 * r, 2 * r), self._frames[int(self.frame) % FRAMES])
+            # cross-fade into the next frame so the turn moves a little every tick rather than in steps
+            i = int(self.frame)
+            rect = QRectF(cx - r, cy - r, 2 * r, 2 * r)
+            p.drawImage(rect, self._frames[i % FRAMES])
+            p.setOpacity(self.frame - i)
+            p.drawImage(rect, self._frames[(i + 1) % FRAMES])
+            p.setOpacity(1.0)
         # varnish highlight
         hl = QRadialGradient(QPointF(cx - r * 0.4, cy - r * 0.45), r * 0.7)
         hl.setColorAt(0, QColor(255, 250, 230, 110 if self.hover else 80))

@@ -16,7 +16,7 @@ from PyQt6.QtGui import QColor, QFont, QFontMetrics, QLinearGradient, QPainter, 
 from . import config, desk, startmenu, system
 
 SAVED = config.CONFIG_PATH.parent / "shelves.json"
-CUBBIES = [i for i, c in enumerate(desk.CUBBIES) if c != desk.MAIL_CUBBY]  # the envelope has its own
+CUBBIES = list(range(len(desk.CUBBIES)))
 SIDE = 8  # gap between a pigeon hole's wall and the first book
 GILT = QColor(222, 184, 96)
 _front = None

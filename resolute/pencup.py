@@ -13,6 +13,7 @@ W = 74.0  # cup diameter
 H = 88.0
 RY = 9.0  # half-height of the rim ellipse (we look slightly down into it)
 TOP_Y = BASE_Y - H
+DEPTH = 46.0  # how far each pen reaches down into the cup, hidden by its front, so lifting never shows its end
 
 # (angle from vertical in degrees, length above the rim, kind, x offset at the rim)
 PENS = [
@@ -98,7 +99,7 @@ def _pen(p, base, angle, length, kind):
     p.setPen(Qt.PenStyle.NoPen)
     if kind == "pencil":
         w = 7
-        body = QRectF(-w / 2, -length, w, length)
+        body = QRectF(-w / 2, -length, w, length + DEPTH)
         g = QLinearGradient(-w / 2, 0, w / 2, 0)
         g.setColorAt(0, QColor(170, 120, 10))
         g.setColorAt(0.45, QColor(250, 200, 40))
@@ -116,7 +117,7 @@ def _pen(p, base, angle, length, kind):
         g.setColorAt(0.4, QColor(70, 70, 80))
         g.setColorAt(1, QColor(6, 6, 8))
         p.setBrush(g)
-        p.drawRoundedRect(QRectF(-w / 2, -length, w, length), 4, 4)
+        p.drawRoundedRect(QRectF(-w / 2, -length, w, length + DEPTH), 4, 4)
         p.setBrush(desk.BRASS)
         p.drawRect(QRectF(-w / 2, -length + 18, w, 3))
         p.drawRect(QRectF(w / 2 - 2, -length + 4, 2.4, 30))  # clip
@@ -127,7 +128,7 @@ def _pen(p, base, angle, length, kind):
         g.setColorAt(0.45, QColor(70, 110, 200))
         g.setColorAt(1, QColor(16, 30, 90))
         p.setBrush(g)
-        p.drawRoundedRect(QRectF(-w / 2, -length, w, length), 3, 3)
+        p.drawRoundedRect(QRectF(-w / 2, -length, w, length + DEPTH), 3, 3)
         p.setBrush(QColor(200, 200, 206))
         p.drawRect(QRectF(-w / 2, -length + 2, w, 5))
     else:  # marker
@@ -137,7 +138,7 @@ def _pen(p, base, angle, length, kind):
         g.setColorAt(0.45, QColor(200, 46, 36))
         g.setColorAt(1, QColor(90, 12, 10))
         p.setBrush(g)
-        p.drawRoundedRect(QRectF(-w / 2, -length, w, length), 4, 4)
+        p.drawRoundedRect(QRectF(-w / 2, -length, w, length + DEPTH), 4, 4)
         p.setBrush(QColor(30, 30, 30))
         p.drawRoundedRect(QRectF(-w / 2 - 0.5, -length - 4, w + 1, 22), 4, 4)
     p.restore()

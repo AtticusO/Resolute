@@ -1,5 +1,6 @@
 """The desk window: scales the desk scene to the screen, tilts the view into open drawers, handles input."""
 
+import ctypes
 import shutil
 import subprocess
 import threading
@@ -10,7 +11,7 @@ from PyQt6.QtCore import QPoint, QPointF, QRect, QRectF, Qt, QTimer
 from PyQt6.QtGui import QAction, QColor, QFont, QFontMetrics, QPainter, QPen, QPixmap, QRadialGradient
 from PyQt6.QtWidgets import QMenu, QWidget
 
-from . import audio, clock, config, desk, lamp, note, pencup, shelves, stickies, windows
+from . import audio, clock, config, desk, lamp, note, pencup, shelves, stickies, textures, windows
 from .drawers import DocumentsDrawer, FilesDrawer, ProgramsDrawer
 from .gauges import Gauge
 from .globe import Globe
@@ -31,6 +32,14 @@ QMenu::separator { height: 1px; background: #c8b088; margin: 4px 8px; }
 
 def _gb(n):
     return n / 1024 ** 3
+
+
+def _release_memory():
+    """Hand memory freed after a big render back to the system (glibc keeps it for reuse otherwise)."""
+    try:
+        ctypes.CDLL("libc.so.6").malloc_trim(0)
+    except (OSError, AttributeError):
+        pass
 
 
 class DeskWindow(QWidget):
@@ -57,9 +66,9 @@ class DeskWindow(QWidget):
         self.programs = ProgramsDrawer(self.notify)
         self.files = FilesDrawer(self.notify)
         self.drawers = [self.files, self.documents, self.programs]
-        env = desk.envelope_rect()
+        env = desk.envelope_polygon().boundingRect()
         # the envelope shares the gauges' hover-tag code, so it carries the same fields
-        self.mail = SimpleNamespace(cx=env.center().x(), cy=env.center().y(), r=env.height() / 2, detail="Open Gmail")
+        self.mail = SimpleNamespace(cx=env.center().x(), cy=env.center().y(), r=env.height() / 2 + 6, detail="Open Gmail")
         self.mail_hover = 0.0
         self.mail_hovered = False
         self.menu = StartMenu()
@@ -182,6 +191,8 @@ class DeskWindow(QWidget):
         p.end()
         self._static = pm
         self._static_stale = False
+        textures.drop_sources()  # every texture the desk uses has its pixmap by now
+        _release_memory()
 
     def _build_static(self):
         dpr = self.devicePixelRatioF()
@@ -196,6 +207,7 @@ class DeskWindow(QWidget):
         self._paint_vignette(vp)
         vp.end()
         self._vignette = vig
+        _release_memory()
 
     def paintEvent(self, event):
         if self._static is None:
@@ -215,8 +227,6 @@ class DeskWindow(QWidget):
 
         def needs(rect):
             return dirty.intersects(rect)
-        if needs(desk.MAIL_CUBBY):
-            desk.paint_envelope(p, self.mail_hover)
         if needs(self.slots.damage_rect()):
             self.slots.paint(p)
         self.shelves.paint(p, dirty)
@@ -239,6 +249,8 @@ class DeskWindow(QWidget):
             pencup.paint(p, self.cup_hover)
         if needs(note.bounds()):
             note.paint_inkwell(p, self.ink_hover)
+        if needs(desk.envelope_bounds()):
+            desk.paint_envelope(p, self.mail_hover)
         if needs(lamp.bounds()):
             lamp.paint(p, self.lamp_hover)
         if needs(self.radio.damage_rect()):
@@ -370,10 +382,10 @@ class DeskWindow(QWidget):
         target = 1.0 if self.mail_hovered else 0.0
         if abs(target - self.mail_hover) > 0.01:
             self.mail_hover += (target - self.mail_hover) * 0.25
-            self.update(self.to_widget(desk.MAIL_CUBBY.adjusted(-10, -10, 10, 10)))
+            self.update(self.to_widget(desk.envelope_bounds()))
         elif self.mail_hover != target:
             self.mail_hover = target
-            self.update(self.to_widget(desk.MAIL_CUBBY.adjusted(-10, -10, 10, 10)))
+            self.update(self.to_widget(desk.envelope_bounds()))
         target = 1.0 if self.ink_hovered else 0.0
         if abs(target - self.ink_hover) > 0.01:
             self.ink_hover += (target - self.ink_hover) * 0.25
@@ -437,12 +449,12 @@ class DeskWindow(QWidget):
         for g in self.gauges:
             if g.contains(pt):
                 return "gauge", g
-        # sticky notes lie under everything above, and over the envelope and the letter slots
+        if desk.envelope_contains(pt):
+            return "mail", self.mail
+        # sticky notes lie under everything above, and over the letter slots and the pigeon holes
         sticky = self.stickies.note_at(pt)
         if sticky:
             return "sticky", sticky
-        if desk.envelope_contains(pt):
-            return "mail", self.mail
         w = self.slots.window_at(pt)
         if w:
             return "slot", w
@@ -640,7 +652,7 @@ class DeskWindow(QWidget):
             if not open_url(config.get("mail_url")):
                 self.notify("Couldn't open the browser for Gmail")
         elif target == "globe":
-            self.globe.speed = 6.0
+            self.globe.speed = 12.0
             self.globe_flash = 10
             if not open_browser():
                 self.notify("Couldn't find a web browser to open")
