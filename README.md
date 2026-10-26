@@ -45,7 +45,7 @@ sudo apt install python3-pyqt6 python3-psutil python3-numpy \
 
 Many distributions now log in to GNOME on Wayland by default, and recent GNOME has no X11 session at all. Resolute still starts there, with a warning, but open programs don't appear in the letter slots, the desk may not stay behind other windows, and the system's own top bar or dock can't be hidden. Check with `echo $XDG_SESSION_TYPE`.
 
-`setup-x11.sh` sets such a machine up for the full desk: it installs Xfce, the X server and the packages above next to your current desktop, and makes Xfce your session for the next login. It supports Debian, Ubuntu and Arch (and their derivatives); other systems get a report and instructions.
+`setup-x11.sh` sets such a machine up for the full desk: it installs Xfce, the X server and the packages above next to your current desktop, and makes Xfce your session for the next login. In a virtual machine it also offers the guest tools, and inside Xfce it offers to make the panels auto-hide. It supports Debian, Ubuntu and Arch (and their derivatives); other systems get a report and instructions.
 
 ```
 ./setup-x11.sh           # look at this machine and show what would be done (changes nothing)
@@ -71,12 +71,22 @@ For development, `python3 -m resolute --screenshot out.png [--open files|documen
 
 ### Hiding the XFCE panel
 
-The desk fills the whole screen. To have XFCE's top panel get out of the way (it reappears when the pointer touches the top edge):
+The desk fills the whole screen. To have XFCE's panels get out of the way (each reappears when the pointer touches its screen edge), make them all auto-hide. This covers the top bar and, on Xubuntu, the dock at the bottom:
 
 ```
-xfconf-query -c xfce4-panel -p /panels/panel-1/autohide-behavior -n -t uint -s 2   # always auto-hide
-xfconf-query -c xfce4-panel -p /panels/panel-1/autohide-behavior -s 0              # back to normal
+# always auto-hide
+for p in $(xfconf-query -c xfce4-panel -p /panels | grep -E '^[0-9]+$'); do
+    xfconf-query -c xfce4-panel -p /panels/panel-$p/autohide-behavior -n -t uint -s 2; done
+# back to normal
+for p in $(xfconf-query -c xfce4-panel -p /panels | grep -E '^[0-9]+$'); do
+    xfconf-query -c xfce4-panel -p /panels/panel-$p/autohide-behavior -n -t uint -s 0; done
 ```
+
+`setup-x11.sh` offers to do this when it is run inside an Xfce session.
+
+### Screen shape
+
+The desk is laid out for a 16:9 screen (1920×1080, 1600×900 and so on). On a taller screen (4:3, 16:10) it stays at the top and more of the desk shows below; on a wider one it sits between bars at the sides. Check yours with `xrandr | grep '*'`. A virtual machine stuck at 4:3 (often 1024×768) usually lacks its guest tools: `setup-x11.sh` offers them for VMware (`open-vm-tools-desktop`), VirtualBox and QEMU/KVM, and then the VM's screen can follow its window (in VMware, View > Autosize > Autofit Guest).
 
 ## Settings
 
@@ -122,8 +132,8 @@ Wayland does not let a program mark itself as the desktop, read other programs' 
 ## Layout
 
 - `resolute.sh`: starts the desk in place of `xfdesktop` (and `--autostart` mode for login); warns when the session is Wayland
-- `install.sh`: adds or removes the login entry
-- `setup-x11.sh`: sets a Wayland/GNOME machine up with an Xfce session on X11 (Debian, Ubuntu, Arch)
+- `install.sh`: adds or removes the login entry; warns when the session is Wayland
+- `setup-x11.sh`: sets a Wayland/GNOME machine up with an Xfce session on X11 (Debian, Ubuntu, Arch), plus VM guest tools and auto-hiding panels
 - `resolute/__main__.py`: command-line options (`--windowed`, `--screenshot`, `--open`)
 - `resolute/app.py`: the desk window: scaling, the camera tilt into drawers, input, polling, repainting only what changed
 - `resolute/config.py`: settings and their defaults

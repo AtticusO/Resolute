@@ -119,6 +119,7 @@ class DeskWindow(QWidget):
 
         self._static = None
         self._scale, self._offset = 1.0, QPointF()
+        self._view_h = float(desk.H)
 
         self.stats_timer = QTimer(self, timeout=self.poll_stats)
         self.stats_timer.start(config.get("stats_interval_ms"))
@@ -153,7 +154,10 @@ class DeskWindow(QWidget):
     def _fit(self):
         s = min(self.width() / desk.W, self.height() / desk.H)
         self._scale = s
-        self._offset = QPointF((self.width() - desk.W * s) / 2, (self.height() - desk.H * s) / 2)
+        # A screen wider than 16:9 shows the desk centred between side bars. A taller one (4:3, 16:10)
+        # keeps the desk at the top and shows more of it below: the scene is drawn tall enough for that.
+        self._offset = QPointF((self.width() - desk.W * s) / 2, 0)
+        self._view_h = self.height() / s  # scene rows on screen: 1080 at 16:9, more on a taller screen
 
     def to_canvas(self, pos):
         return QPointF((pos.x() - self._offset.x()) / self._scale,
@@ -178,7 +182,7 @@ class DeskWindow(QWidget):
 
     def _paint_static_layer(self):
         dpr = self.devicePixelRatioF()
-        height = self._offset.y() * 2 + desk.SCENE_H * self._scale
+        height = max(desk.SCENE_H * self._scale, self.height())
         pm = QPixmap(int(self.width() * dpr), int(height * dpr) + 1)
         pm.setDevicePixelRatio(dpr)
         pm.fill(QColor(18, 30, 25))
@@ -200,10 +204,11 @@ class DeskWindow(QWidget):
         self.globe.build(self._scale * dpr)
         lamp.build(self._scale * dpr)
         # the lamp-light vignette never changes, so render it once
-        vig = QPixmap(int(desk.W * self._scale * dpr), int(desk.H * self._scale * dpr))
+        vig = QPixmap(int(desk.W * self._scale * dpr), int(self._view_h * self._scale * dpr))
         vig.fill(Qt.GlobalColor.transparent)
         vp = QPainter(vig)
         vp.scale(self._scale * dpr, self._scale * dpr)
+        vp.scale(1, self._view_h / desk.H)  # stretched to the screen, so its corners fall where the screen's do
         self._paint_vignette(vp)
         vp.end()
         self._vignette = vig
@@ -266,7 +271,7 @@ class DeskWindow(QWidget):
         self.stickies.paint_held(p)  # the note in your hand is above everything
         # overlays fixed to the screen
         p.translate(0, self.cam)
-        p.drawPixmap(QRectF(0, 0, desk.W, desk.H), self._vignette, QRectF(self._vignette.rect()))
+        p.drawPixmap(QRectF(0, 0, desk.W, self._view_h), self._vignette, QRectF(self._vignette.rect()))
         if self.hover_gauge:
             self._paint_gauge_tag(p, self.hover_gauge)
         if self.toast:
@@ -309,7 +314,7 @@ class DeskWindow(QWidget):
         p.restore()
 
     def _toast_rect(self):
-        return QRectF(desk.W / 2 - 420, 1012, 840, 46)
+        return QRectF(desk.W / 2 - 420, self._view_h - 68, 840, 46)
 
     def _paint_toast(self, p):
         r = self._toast_rect()
@@ -372,7 +377,8 @@ class DeskWindow(QWidget):
                 self.radio.state = state
                 self.radio.update_tags()
                 self.update(self.to_widget(self.radio.damage_rect()))
-        cam_target = max(d.pan * d.target for d in self.drawers)
+        # tilt down into an open drawer, but never past the bottom of the desk (a taller screen needs less)
+        cam_target = min(max(d.pan * d.target for d in self.drawers), max(0.0, desk.SCENE_H - self._view_h))
         if abs(cam_target - self.cam) > 0.5:
             self.cam += (cam_target - self.cam) * 0.14
             self.update()

@@ -126,6 +126,13 @@ login_screen() {
     fi
 }
 
+# The kind of virtual machine this is (vmware, oracle for VirtualBox, kvm, qemu, ...) or none.
+vm_kind() {
+    local v=""
+    command -v systemd-detect-virt >/dev/null && v="$(systemd-detect-virt --vm 2>/dev/null)"
+    echo "${v:-none}"
+}
+
 installed() {  # installed PACKAGE -> true if the package manager has it installed
     case "$FAMILY" in
         debian) dpkg-query -W -f='${Status}' "$1" 2>/dev/null | grep -q "install ok installed" ;;
@@ -160,6 +167,19 @@ set_packages() {
             LOGIN_PKGS=(lightdm lightdm-gtk-greeter)
             ;;
         # Future additions: package lists for the families listed above distro_family().
+    esac
+
+    # Guest tools let a virtual machine's screen follow the size of its window. Without them the
+    # screen is often stuck at 4:3 (1024x768), and the VM shows bars around it.
+    # Future additions: Hyper-V (hyperv-daemons), Parallels (its own Tools installer).
+    VM_PKGS=(); VM_SERVICES=(); VM_NAME=""
+    case "$VM:$FAMILY" in
+        vmware:debian) VM_NAME=VMware; VM_PKGS=(open-vm-tools-desktop) ;;
+        vmware:arch)   VM_NAME=VMware; VM_PKGS=(open-vm-tools gtkmm3)
+                       VM_SERVICES=(vmtoolsd.service vmware-vmblock-fuse.service) ;;
+        oracle:debian) VM_NAME=VirtualBox; VM_PKGS=(virtualbox-guest-x11) ;;
+        oracle:arch)   VM_NAME=VirtualBox; VM_PKGS=(virtualbox-guest-utils); VM_SERVICES=(vboxservice.service) ;;
+        kvm:*|qemu:*)  VM_NAME="QEMU/KVM"; VM_PKGS=(spice-vdagent) ;;
     esac
 }
 
@@ -223,6 +243,8 @@ say "  System:        ${NAME:-unknown}"
 say "  Session:       $SESSION"
 say "  Desktop:       $DESKTOP"
 say "  Login screen:  $DM"
+VM="$(vm_kind)"
+if [ "$VM" = none ]; then say "  Machine:       not a virtual machine"; else say "  Machine:       virtual machine ($VM)"; fi
 
 ALREADY=0
 if [ "$SESSION" = x11 ] && [[ "$DESKTOP" == *XFCE* ]]; then
@@ -253,6 +275,20 @@ set_packages
 NEED_DESKTOP="$(missing "${DESKTOP_PKGS[@]}")"
 NEED_RESOLUTE="$(missing "${RESOLUTE_PKGS[@]}")"
 NEED_OFFICE="$(missing "${OFFICE_PKGS[@]}")"
+NEED_VM=""
+[ ${#VM_PKGS[@]} -gt 0 ] && NEED_VM="$(missing "${VM_PKGS[@]}")"
+
+# Xfce's panels (the top bar, and on Xubuntu a dock at the bottom) sit over the desk unless they
+# auto-hide. Their settings only exist once Xfce has been logged in to, so this is only offered there.
+PANELS=""; PANELS_SHOWN=""
+if [ "$ALREADY" -eq 1 ] && command -v xfconf-query >/dev/null; then
+    PANELS="$(xfconf-query -c xfce4-panel -p /panels 2>/dev/null | grep -E '^[0-9]+$' | tr '\n' ' ')"
+    for id in $PANELS; do
+        [ "$(xfconf-query -c xfce4-panel -p "/panels/panel-$id/autohide-behavior" 2>/dev/null)" = 2 ] \
+            || PANELS_SHOWN="$PANELS_SHOWN $id"
+    done
+    PANELS_SHOWN="${PANELS_SHOWN# }"
+fi
 
 # Recent GDM may only start Wayland sessions, so an Xfce/X11 session might never be offered.
 # LightDM reliably starts X11 sessions. SDDM, LXDM, XDM and LightDM itself can be kept as they are.
@@ -274,19 +310,30 @@ if [ "$WANT_LIGHTDM" -eq 1 ]; then
 else
     say "  Login screen:                keep $DM"
 fi
+if [ -n "$VM_NAME" ]; then
+    say "  $VM_NAME guest tools:$(printf '%*s' $((16 - ${#VM_NAME})) '')${NEED_VM:-installed}"
+elif [ "$VM" != none ]; then
+    say "  Guest tools:                 no package known for $VM; install its guest tools by hand"
+fi
 if [ "$ALREADY" -eq 1 ]; then
+    if [ -n "$PANELS_SHOWN" ]; then
+        say "  Xfce panels:                 panel $PANELS_SHOWN always shown; offer to auto-hide (asks first)"
+    elif [ -n "$PANELS" ]; then
+        say "  Xfce panels:                 already auto-hide"
+    fi
     say "  Default session:             already Xfce"
 else
     say "  Default session:             make Xfce the session for your next login (asks first)"
 fi
 
 if [ "$FAMILY" = debian ]; then
-    GONE="$(unavailable $NEED_DESKTOP $NEED_RESOLUTE)"
+    GONE="$(unavailable $NEED_DESKTOP $NEED_RESOLUTE $NEED_VM)"
     if [ -n "$GONE" ]; then
         say ""
         say "  apt can't find: $GONE"
         if [ "$(os_field ID)" = ubuntu ]; then
-            say "  On Ubuntu these are in \"universe\": sudo add-apt-repository universe && sudo apt update"
+            say "  On Ubuntu these are in \"universe\" or \"multiverse\":"
+            say "    sudo add-apt-repository universe && sudo add-apt-repository multiverse && sudo apt update"
         else
             say "  Try: sudo apt update"
         fi
@@ -316,6 +363,26 @@ if [ -n "$NEED_OFFICE" ]; then
     fi
 fi
 
+if [ -n "$NEED_VM" ]; then
+    if ask "Install $VM_NAME's guest tools ($NEED_VM) so the screen follows the window size?"; then
+        # shellcheck disable=SC2086
+        if install_packages $NEED_VM; then
+            [ ${#VM_SERVICES[@]} -gt 0 ] && run sudo systemctl enable --now "${VM_SERVICES[@]}"
+            VM_INSTALLED=1
+        else
+            say "  Installing failed; see the messages above."
+        fi
+    fi
+fi
+
+if [ -n "$PANELS_SHOWN" ]; then
+    if ask "Make Xfce's panels auto-hide (they slide back in when the pointer reaches their edge)?"; then
+        for id in $PANELS_SHOWN; do
+            run xfconf-query -c xfce4-panel -p "/panels/panel-$id/autohide-behavior" -n -t uint -s 2
+        done
+    fi
+fi
+
 if [ "$WANT_LIGHTDM" -eq 1 ]; then
     say ""
     say "  The login screen decides which sessions you can pick when you log in."
@@ -339,11 +406,26 @@ else
 fi
 
 section "Next"
-say "  1. Log out (or reboot, if the login screen was changed)."
-say "  2. On the login screen, choose \"Xfce Session\" (not one marked Wayland, if listed)."
-say "  3. Check with:  echo \$XDG_SESSION_TYPE   (it should say x11)"
-say "  4. Then run ./resolute.sh, and ./install.sh to start the desk at every login."
+if [ "$ALREADY" -eq 1 ]; then
+    say "  Run ./resolute.sh, and ./install.sh to start the desk at every login."
+else
+    say "  1. Log out (or reboot, if the login screen was changed)."
+    say "  2. On the login screen, choose \"Xfce Session\" (not one marked Wayland, if listed)."
+    say "  3. Check with:  echo \$XDG_SESSION_TYPE   (it should say x11)"
+    say "  4. Then run ./resolute.sh, and ./install.sh to start the desk at every login."
+    say "  5. Once in Xfce, make its panels (top bar, and the dock on Xubuntu) auto-hide; run this"
+    say "     again, or:"
+    say "     for p in \$(xfconf-query -c xfce4-panel -p /panels | grep -E '^[0-9]+\$'); do"
+    say "         xfconf-query -c xfce4-panel -p /panels/panel-\$p/autohide-behavior -n -t uint -s 2; done"
+fi
 say ""
-say "  In a VirtualBox VM, install the Guest Additions too, or the X11 session may be stuck at"
-say "  a small screen size."
+say "  The desk is laid out for a 16:9 screen (1920x1080, 1600x900, ...); other shapes work, with"
+say "  more desk showing below or bars at the sides. Check yours with:  xrandr | grep '*'"
+case "$VM" in
+    vmware) say "  In VMware, turn on View > Autosize > Autofit Guest (Workstation/Player) or"
+            say "  View > Resize Virtual Machine (Fusion), so the screen follows the window." ;;
+    oracle) say "  In VirtualBox, turn on View > Auto-resize Guest Display, so the screen follows the window." ;;
+    kvm|qemu) say "  In virt-manager, turn on View > Scale Display > Auto resize VM with window." ;;
+esac
+[ "${VM_INSTALLED:-0}" -eq 1 ] && say "  Reboot once for the $VM_NAME guest tools to take effect."
 say "  Log: $LOG"
