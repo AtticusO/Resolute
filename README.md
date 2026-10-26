@@ -41,6 +41,19 @@ sudo apt install python3-pyqt6 python3-psutil python3-numpy \
 - `fonts-urw-base35` and `fonts-dejavu-core`: the C059, Z003 and DejaVu fonts used on the labels, dials and note paper
 - `exo-utils`, `xdg-utils` and `xfconf` are used too; they come with XFCE
 
+### On Wayland (Ubuntu, Fedora, recent GNOME)
+
+Many distributions now log in to GNOME on Wayland by default, and recent GNOME has no X11 session at all. Resolute still starts there, with a warning, but open programs don't appear in the letter slots, the desk may not stay behind other windows, and the system's own top bar or dock can't be hidden. Check with `echo $XDG_SESSION_TYPE`.
+
+`setup-x11.sh` sets such a machine up for the full desk: it installs Xfce, the X server and the packages above next to your current desktop, and makes Xfce your session for the next login. It supports Debian, Ubuntu and Arch (and their derivatives); other systems get a report and instructions.
+
+```
+./setup-x11.sh           # look at this machine and show what would be done (changes nothing)
+./setup-x11.sh --apply   # do it, asking before each step
+```
+
+It asks before installing anything, and if your login screen is GDM (which may not offer X11 sessions) it offers to switch it to LightDM, only if you answer yes; it prints how to switch back. It never removes your current desktop or changes GDM's Wayland setting. Afterwards, log out, choose "Xfce Session" on the login screen, and run `./resolute.sh`.
+
 ## Running
 
 ```
@@ -108,8 +121,9 @@ Wayland does not let a program mark itself as the desktop, read other programs' 
 
 ## Layout
 
-- `resolute.sh`: starts the desk in place of `xfdesktop` (and `--autostart` mode for login)
+- `resolute.sh`: starts the desk in place of `xfdesktop` (and `--autostart` mode for login); warns when the session is Wayland
 - `install.sh`: adds or removes the login entry
+- `setup-x11.sh`: sets a Wayland/GNOME machine up with an Xfce session on X11 (Debian, Ubuntu, Arch)
 - `resolute/__main__.py`: command-line options (`--windowed`, `--screenshot`, `--open`)
 - `resolute/app.py`: the desk window: scaling, the camera tilt into drawers, input, polling, repainting only what changed
 - `resolute/config.py`: settings and their defaults
