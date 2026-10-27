@@ -4,12 +4,12 @@ import math
 import time
 from types import SimpleNamespace
 
-import psutil
 from PyQt6.QtCore import QPointF, QRectF, Qt
 from PyQt6.QtGui import (QColor, QConicalGradient, QFont, QLinearGradient, QPainter, QPainterPath, QPen,
                          QRadialGradient, QTransform)
 
 from . import desk, textures
+from .system import battery
 
 CX = 1712.0
 BASE_Y = 772.0
@@ -35,17 +35,6 @@ def part_at(pt):
     if math.hypot(pt.x() - SUB.x(), pt.y() - SUB.y()) <= SUB_R + 3:
         return "battery"
     return "time"
-
-
-def battery():
-    """(percent, plugged in) or None when the machine has no battery."""
-    try:
-        b = psutil.sensors_battery()
-    except (AttributeError, OSError):
-        return None
-    if b is None:
-        return None
-    return b.percent, bool(b.power_plugged)
 
 
 def _case_path():
@@ -214,7 +203,7 @@ class Clock:
         if b is None:
             self.tags["battery"].detail = "No battery: running on mains power"
         else:
-            pct, plugged = b
+            pct, plugged, _ = b
             state = "charging" if plugged and pct < 99.5 else ("plugged in" if plugged else "on battery")
             self.tags["battery"].detail = f"Battery {pct:.0f}%, {state}"
 

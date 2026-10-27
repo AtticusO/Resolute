@@ -8,17 +8,17 @@ import time
 from types import SimpleNamespace
 
 from PyQt6.QtCore import QPoint, QPointF, QRect, QRectF, Qt, QTimer
-from PyQt6.QtGui import QAction, QColor, QFont, QFontMetrics, QPainter, QPen, QPixmap, QRadialGradient
+from PyQt6.QtGui import QAction, QColor, QFont, QFontMetrics, QKeySequence, QPainter, QPen, QPixmap, QRadialGradient
 from PyQt6.QtWidgets import QMenu, QWidget
 
-from . import audio, clock, config, desk, lamp, note, pencup, shelves, stickies, textures, windows
+from . import audio, clock, config, desk, lamp, note, pencup, shelves, sketch, stickies, textures, windows
 from .drawers import DocumentsDrawer, FilesDrawer, ProgramsDrawer
 from .gauges import Gauge
 from .globe import Globe
 from .radio import Radio
 from .startmenu import AppPicker, StartMenu
 from .taskslots import TaskSlots
-from .system import Stats, open_browser, open_path, open_terminal, open_url
+from .system import Stats, battery, open_browser, open_path, open_terminal, open_url
 
 FRAME_MS = 33
 DEVICE_MENU_STYLE = """
@@ -55,10 +55,10 @@ class DeskWindow(QWidget):
         self.gauges = [
             Gauge(c, desk.GAUGE_RADIUS, title, sub, lo, hi, major, minors, red, lamp)
             for c, (title, sub, lo, hi, major, minors, red, lamp) in zip(desk.GAUGE_CENTERS, (
-                ("CPU", "per cent load", 0, 100, 20, 4, 85, False),
-                ("RAM", "per cent used", 0, 100, 20, 4, 85, False),
-                ("TEMP", "degrees celsius", 20, 100, 20, 4, 85, True),
-                ("DISK", "per cent full", 0, 100, 20, 4, 90, False),
+                ("CPU", "per cent load", 0, 100, 20, 4, (85, 100), False),
+                ("RAM", "per cent used", 0, 100, 20, 4, (85, 100), False),
+                ("BATTERY", "per cent charged", 0, 100, 20, 4, (0, 20), True),
+                ("DISK", "per cent full", 0, 100, 20, 4, (90, 100), False),
             ))
         ]
         self.globe = Globe(desk.GLOBE_CENTER, desk.GLOBE_RADIUS)
@@ -96,6 +96,11 @@ class DeskWindow(QWidget):
         self.note = note.Note()
         self.note.changed.connect(lambda: self.update(self.to_widget(self.note.bounds())))
         self._note_drag = False
+        self.sketch = sketch.Sketch(self.notify)
+        self.sketch.changed.connect(self._sketch_changed)
+        self._sketch_drag = False
+        tag = self.sketch.tag_point()
+        self.sketch_tag = SimpleNamespace(cx=tag.x(), cy=tag.y() + 10, r=30, detail="Draw a sketch")
         self.stickies = stickies.Stickies()
         self.stickies.changed.connect(lambda r: self.update(self.to_widget(r)))
         self.stickies.desk_changed.connect(self._desk_layer_changed)
@@ -146,6 +151,7 @@ class DeskWindow(QWidget):
             self._poke.clear()
 
     def closeEvent(self, event):
+        self.sketch.flush()
         self._stop.set()
         self._poke.set()
         super().closeEvent(event)
@@ -219,16 +225,24 @@ class DeskWindow(QWidget):
             self._build_static()
         elif self._static_stale:
             self._paint_static_layer()
+        # only draw the parts that overlap the area being repainted (most frames it is just the globe)
+        r = event.rect()
+        dirty = QRectF((r.x() - self._offset.x()) / self._scale, (r.y() - self._offset.y()) / self._scale + self.cam,
+                       r.width() / self._scale, r.height() / self._scale)
         p = QPainter(self)
+        if self.sketch.covers(dirty):  # drawing on the held sketch pad: nothing behind it shows
+            p.setRenderHint(QPainter.RenderHint.Antialiasing)
+            p.translate(self._offset)
+            p.scale(self._scale, self._scale)
+            p.translate(0, -self.cam)
+            self.sketch.paint(p)
+            self._paint_overlays(p)
+            return
         p.drawPixmap(QRectF(event.rect()), self._static, self._src(event.rect()))
         p.setRenderHint(QPainter.RenderHint.Antialiasing)
         p.translate(self._offset)
         p.scale(self._scale, self._scale)
         p.translate(0, -self.cam)
-        # only draw the parts that overlap the area being repainted (most frames it is just the globe)
-        r = event.rect()
-        dirty = QRectF((r.x() - self._offset.x()) / self._scale, (r.y() - self._offset.y()) / self._scale + self.cam,
-                       r.width() / self._scale, r.height() / self._scale)
 
         def needs(rect):
             return dirty.intersects(rect)
@@ -256,6 +270,8 @@ class DeskWindow(QWidget):
             note.paint_inkwell(p, self.ink_hover)
         if needs(desk.envelope_bounds()):
             desk.paint_envelope(p, self.mail_hover)
+        if self.sketch.t == 0 and needs(self.sketch.bounds()):
+            self.sketch.paint(p)
         if needs(lamp.bounds()):
             lamp.paint(p, self.lamp_hover)
         if needs(self.radio.damage_rect()):
@@ -268,8 +284,13 @@ class DeskWindow(QWidget):
                 d.paint(p)
         if needs(self.note.bounds()):
             self.note.paint(p)
+        if self.sketch.t > 0 and needs(self.sketch.bounds()):
+            self.sketch.paint(p)  # held up in front of everything on the desk
         self.stickies.paint_held(p)  # the note in your hand is above everything
-        # overlays fixed to the screen
+        self._paint_overlays(p)
+
+    def _paint_overlays(self, p):
+        """What is fixed to the screen: the lamplight vignette, hover tags and messages."""
         p.translate(0, self.cam)
         p.drawPixmap(QRectF(0, 0, desk.W, self._view_h), self._vignette, QRectF(self._vignette.rect()))
         if self.hover_gauge:
@@ -346,13 +367,22 @@ class DeskWindow(QWidget):
     def poll_stats(self):
         cpu = self.stats.cpu()
         ram, ram_used, ram_total = self.stats.ram()
-        temp = self.stats.temperature()
+        batt = battery()
         disk, disk_used, disk_total = self.stats.disk()
         self.gauges[0].set_target(cpu, f"{cpu:.0f}%", f"Processor load: {cpu:.0f}%")
         self.gauges[1].set_target(ram, f"{_gb(ram_used):.1f}/{_gb(ram_total):.0f}G",
                                   f"Memory: {_gb(ram_used):.1f} of {_gb(ram_total):.1f} GB used")
-        self.gauges[2].set_target(temp, "--\u00b0C" if temp is None else f"{temp:.0f}\u00b0C",
-                                  "No temperature sensor found" if temp is None else f"CPU temperature: {temp:.0f}\u00b0C")
+        if batt is None:
+            self.gauges[2].set_target(None, "--%", "No battery: running on mains power")
+        else:
+            pct, plugged, left = batt
+            if plugged:
+                state = "charging" if pct < 99.5 else "plugged in"
+            elif left is not None:
+                state = f"about {left // 3600} h {left % 3600 // 60:02d} min left"
+            else:
+                state = "on battery"
+            self.gauges[2].set_target(pct, f"{pct:.0f}%", f"Battery: {pct:.0f}%, {state}")
         self.gauges[3].set_target(disk, f"{_gb(disk_used):.0f}/{_gb(disk_total):.0f}G",
                                   f"Storage: {_gb(disk_used):.0f} of {_gb(disk_total):.0f} GB used ({disk:.0f}%)")
         self.update(self.to_widget(self._gauge_area()))
@@ -428,6 +458,9 @@ class DeskWindow(QWidget):
 
     # -- input -------------------------------------------------------------
     def _target_at(self, pt):
+        part = self.sketch.part_at(pt)
+        if part:
+            return "sketch", part
         if self.note.on_page(pt):
             return "page", None
         editing = self.stickies.editing
@@ -440,6 +473,8 @@ class DeskWindow(QWidget):
                 return d, hit
         if stickies.pad_contains(pt):
             return "pad", self.pad_tag
+        if self.sketch.contains(pt):
+            return "sketchpad", self.sketch_tag
         if lamp.contains(pt):
             return "lamp", self.lamp_tag
         if pencup.contains(pt):
@@ -474,6 +509,9 @@ class DeskWindow(QWidget):
 
     def mouseMoveEvent(self, event):
         pt = self.to_canvas(event.position())
+        if self._sketch_drag:
+            self.sketch.extend(pt)
+            return
         if self._note_drag:
             self.note.mouse("move", pt)
             return
@@ -509,6 +547,8 @@ class DeskWindow(QWidget):
         self.cup_hovered = target == "cup"
         self.ink_hovered = target == "ink"
         self.pad_hovered = target == "pad"
+        self.sketch.set_hover(target == "sketchpad")
+        self.sketch.point_at(pt if target == "sketch" and hit == "page" else None)
         self.globe.hover = target == "globe"
         self.mail_hovered = target == "mail"
         book = hit if target == "book" else None
@@ -517,7 +557,7 @@ class DeskWindow(QWidget):
                 if b:
                     self.update(self.to_widget(self.shelves.damage_rect(self.shelves.cubby_of(b))))
             self.shelves.hover = book
-        if target in ("gauge", "mail", "lamp", "cup", "ink", "clock", "pad", "book"):
+        if target in ("gauge", "mail", "lamp", "cup", "ink", "clock", "pad", "book", "sketchpad"):
             gauge = hit
         elif target == "slot":
             gauge = self.slots.tag_for(hit)
@@ -536,13 +576,17 @@ class DeskWindow(QWidget):
             if item is not d.hover_item:
                 d.hover_item = item
                 self.update(self.to_widget(d.damage_rect()))
+        if target == "sketch":  # the pen in your hand stands in for the pointer on the page
+            self.setCursor({"page": Qt.CursorShape.BlankCursor, "pad": Qt.CursorShape.ArrowCursor}.get(
+                hit, Qt.CursorShape.PointingHandCursor))
+            return
         if target == "page" or (target == "sticky" and hit is self.stickies.editing):
             self.setCursor(Qt.CursorShape.IBeamCursor)
             return
         if target in ("sticky", "pad"):
             self.setCursor(Qt.CursorShape.OpenHandCursor)
             return
-        clickable = target in ("lamp", "cup", "ink", "globe", "mail", "slot", "book") or part or (target in self.drawers and hit != "inside")
+        clickable = target in ("lamp", "cup", "ink", "globe", "mail", "slot", "book", "sketchpad") or part or (target in self.drawers and hit != "inside")
         self.setCursor(Qt.CursorShape.PointingHandCursor if clickable else Qt.CursorShape.ArrowCursor)
 
     def leaveEvent(self, event):
@@ -550,6 +594,8 @@ class DeskWindow(QWidget):
         self.cup_hovered = False
         self.ink_hovered = False
         self.pad_hovered = False
+        self.sketch.set_hover(False)
+        self.sketch.point_at(None)
         self.update(self.to_widget(lamp.bounds()))
         self.globe.hover = False
         self.mail_hovered = False
@@ -576,6 +622,10 @@ class DeskWindow(QWidget):
     def mousePressEvent(self, event):
         pt = self.to_canvas(event.position())
         target, hit = self._target_at(pt)
+        if target == "sketch" and hit == "page" and event.button() in (Qt.MouseButton.LeftButton, Qt.MouseButton.RightButton):
+            self._sketch_drag = True
+            self.sketch.begin(pt, erase=event.button() == Qt.MouseButton.RightButton)
+            return
         if event.button() == Qt.MouseButton.RightButton and target is self.programs and hit in self.programs.added:
             self._program_menu(hit, event.globalPosition().toPoint())
             return
@@ -608,6 +658,10 @@ class DeskWindow(QWidget):
                 self.knob_drag = [hit, pt.y(), dev.volume, False]
 
     def mouseReleaseEvent(self, event):
+        if self._sketch_drag:
+            self._sketch_drag = False
+            self.sketch.end()
+            return
         if event.button() != Qt.MouseButton.LeftButton:
             return
         pt = self.to_canvas(event.position())
@@ -643,6 +697,13 @@ class DeskWindow(QWidget):
             self.menu.popup_at(anchor)
         elif target == "ink":
             self.toggle_note()
+        elif target == "sketchpad":
+            self.lift_sketch()
+        elif target == "sketch":
+            if hit == "close":
+                self.sketch.put_down()
+            elif hit == "new":
+                self.sketch.new_page()
         elif target == "cup":
             if not open_terminal():
                 self.notify("Couldn't find a terminal program to open")
@@ -665,6 +726,7 @@ class DeskWindow(QWidget):
         elif target in self.drawers:
             if hit == "front":
                 self.note.put_away()
+                self.sketch.put_down()
                 for d in self.drawers:
                     if d is not target:
                         d.close()
@@ -677,6 +739,7 @@ class DeskWindow(QWidget):
         else:
             self._close_drawers()
             self.note.put_away()
+            self.sketch.put_down()
 
     def mouseDoubleClickEvent(self, event):
         pt = self.to_canvas(event.position())
@@ -765,6 +828,7 @@ class DeskWindow(QWidget):
 
     def _spring_open(self):
         self.note.put_away()
+        self.sketch.put_down()
         for d in self.drawers:
             if d is not self.programs:
                 d.close()
@@ -816,6 +880,14 @@ class DeskWindow(QWidget):
         if self.note.visible:  # typing goes onto the page
             self.note.key(event)
             return
+        if self.sketch.held:
+            if event.key() == Qt.Key.Key_Escape:
+                self.sketch.put_down()
+            elif event.matches(QKeySequence.StandardKey.Undo):
+                self.sketch.undo()
+            elif event.matches(QKeySequence.StandardKey.Cut):
+                self.sketch.clear()
+            return
         if event.key() == Qt.Key.Key_Escape:
             self._close_drawers()
 
@@ -829,6 +901,7 @@ class DeskWindow(QWidget):
     # -- note paper ----------------------------------------------------------
     def toggle_note(self):
         self.stickies.finish_editing()
+        self.sketch.put_down()
         if self.note.visible:
             self.note.put_away()
             return
@@ -837,9 +910,26 @@ class DeskWindow(QWidget):
         self.activateWindow()
         self.setFocus()
 
+    def _sketch_changed(self, rect):
+        if self.sketch.covers(rect.adjusted(-4, -4, 4, 4)):
+            # paint it straight away: queued, it would merge with the globe's repaint and lose the fast path
+            self.repaint(self.to_widget(rect))
+        else:
+            self.update(self.to_widget(rect))
+
+    def lift_sketch(self):
+        """Pick the sketch pad up off the leather and hold it in front of you to draw on."""
+        self.stickies.finish_editing()
+        self.note.put_away()
+        self._close_drawers()
+        self.sketch.lift()
+        self.activateWindow()
+        self.setFocus()
+
     def open_text_file(self, path):
         """A text file from the DOCUMENTS drawer is laid on the writing pad, like the quill's note."""
         self.stickies.finish_editing()
+        self.sketch.put_down()
         self._close_drawers()
         if not self.note.open_note(path):
             self.notify(f"{path.name} couldn't be read as plain text, so it was opened in its own program")

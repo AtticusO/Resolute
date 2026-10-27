@@ -9,13 +9,14 @@ A desktop environment shaped like a roll-top desk, seen from the chair. It is wr
 | Stained glass lamp (back left) | Start menu: search and launch any installed application (Kali's tools are under Security Tools), plus Lock, Sleep, Log Out, Restart and Shut Down. Log Out, Restart and Shut Down ask first. "Close desk" at the bottom left exits Resolute |
 | Pad of sticky notes (in front of the lamp) | Press on the pad and drag: a note peels off and comes with the pointer. Let go over the desk top and it lies there; let go over the organiser and it sticks to it. Double-click a note to write on it (click inside it to move the cursor), and press Esc or click anywhere else when you're done. Drag a note to move it; right-click it to write on it or throw it away. Notes are saved in `~/.config/resolute/stickies.json` |
 | Radio (back left, beside the gauges) | Left knob: speaker volume. Right knob: microphone level. Scroll over a knob or drag it up and down to turn it; click it to mute (a red lamp shows when muted). Click the glowing dial to choose which speakers and microphone to use |
-| Bronze gauges (on their stand, back centre) | CPU, RAM, TEMP (CPU temperature) and DISK, updated every 1.5 s. TEMP shows `--°C` with its amber lamp lit when the machine has no temperature sensor (for example in a virtual machine). Hover a gauge for the exact figures |
+| Bronze gauges (on their stand, back centre) | CPU, RAM, BATTERY (per cent charged, red below 20%) and DISK, updated every 1.5 s. BATTERY shows `--%` with its amber lamp lit when the machine has no battery (for example a desktop PC). Hover a gauge for the exact figures; the battery's tag says whether it is charging or, on battery, roughly how long is left |
 | Your name (on the arch over the letter slots) | Your username, lettered in gilt; a long name is set smaller to fit |
 | Letter slots (in the organiser, back centre) | One card per open program, with its icon and title. Click a card to bring that window forward; click the card of the window already in front to minimise it. The front window's card stands taller with a brass edge; minimised ones sit lower. Scroll over the slots if more than 11 programs are open |
 | Pigeon holes (the organiser's cubbies) | Right-click a pigeon hole and choose "Add an application…" to put a program there: it stands in the pigeon hole as a cloth-bound book, coloured after its icon, with its name running down the spine above its logo. Click the book to start the program; right-click it to open it or take it off the shelf. Each pigeon hole holds about four books. They are saved in `~/.config/resolute/shelves.json` |
 | Sealed letter (on the desk, in front of the inkwell) | Opens Gmail in the default browser |
 | Pen cup (back right of the gauges) | Opens a terminal (XFCE's preferred one) |
 | Quill and inkwell (beside the pen cup) | Lays a sheet of note paper on the leather writing pad; type straight onto it, click on it to move the cursor. It saves automatically to a text file. Click the quill again, click elsewhere on the desk, press Esc or click the × on the page to put it away |
+| Sketch pad (left side of the leather writing pad) | A spiral-bound pad with a fountain pen lying on it. Click it and the pad comes up to stand in the middle of the desk, as if you were holding it, and the pen follows the pointer. Draw with the left button, rub out with the right, press Ctrl+X to clear the whole page, and Ctrl+Z to take back strokes (or a clear) made since you picked it up. The page saves itself as a picture, `~/Documents/desk-sketch.png`. "New page" keeps the old drawing in `~/Documents/Sketches/` and gives you a clean sheet. Click the × on the page, click elsewhere on the desk or press Esc to put it down |
 | Globe (back right) | Opens the default web browser. It turns slowly, faster when you hover |
 | Mantel clock (right, in front of the globe) | The time, with a sweeping second hand. The small dial at six o'clock is the battery gauge: E to F, red below 20%, a green pip when plugged in. Hover the clock for the date, or the small dial for the exact charge |
 | FILES drawer (left) | Hanging file folders for browsing the whole filesystem, starting in your home folder. Click a folder to go in, ▲ Up to go back up (all the way to `/`), a file to open it; scroll for more |
@@ -96,6 +97,7 @@ Optional. Create `~/.config/resolute/config.toml` to override any of these:
 documents_dir = "~/Documents"                # the DOCUMENTS drawer
 files_start_dir = "~"                        # where the FILES drawer opens
 note_file = "~/Documents/desk-note.txt"      # the quill's note paper
+sketch_file = "~/Documents/desk-sketch.png"  # the sketch pad's page (old pages go in a Sketches folder beside it)
 mail_url = "https://mail.google.com"         # the sealed letter
 text_editor_command = "libreoffice --writer"
 slideshow_command = "libreoffice --impress"
@@ -148,6 +150,7 @@ Wayland does not let a program mark itself as the desktop, read other programs' 
 - `resolute/clock.py`: the mantel clock and its battery gauge
 - `resolute/pencup.py`: the pen cup
 - `resolute/note.py`: the inkwell and quill, and the note paper with its hidden editor
+- `resolute/sketch.py`: the sketch pad and its fountain pen, picked up to draw on
 - `resolute/shelves.py`: the books standing in the pigeon holes, one per application
 - `resolute/stickies.py`: the sticky-note pad and the notes peeled off it, with their hidden editor
 - `resolute/system.py`: system stats, launching programs, opening files and URLs, power actions

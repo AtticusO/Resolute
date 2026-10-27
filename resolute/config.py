@@ -11,6 +11,7 @@ DEFAULTS = {
     "files_start_dir": "~",  # where the Files drawer opens; Up goes all the way to /
     "mail_url": "https://mail.google.com",
     "note_file": "~/Documents/desk-note.txt",  # the note paper the quill brings up
+    "sketch_file": "~/Documents/desk-sketch.png",  # the page of the sketch pad
     "text_editor_command": "libreoffice --writer",
     "slideshow_command": "libreoffice --impress",
     "code_editor_command": "code",  # VS Code, in the Programs drawer

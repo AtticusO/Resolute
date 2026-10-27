@@ -10,7 +10,17 @@ import psutil
 
 from . import config
 
-TEMP_SENSORS = ("coretemp", "k10temp", "zenpower", "cpu_thermal", "cpu-thermal", "acpitz", "soc_thermal")
+
+def battery():
+    """(percent, plugged in, seconds left or None) or None when the machine has no battery."""
+    try:
+        b = psutil.sensors_battery()
+    except (AttributeError, OSError):
+        return None
+    if b is None:
+        return None
+    left = b.secsleft if isinstance(b.secsleft, int) and b.secsleft >= 0 else None
+    return b.percent, bool(b.power_plugged), left
 
 
 class Stats:
@@ -27,25 +37,6 @@ class Stats:
     def disk(self):
         du = psutil.disk_usage(str(config.get("disk_path")))
         return du.percent, du.used, du.total
-
-    def temperature(self):
-        """CPU temperature in °C, or None when the machine has no readable sensor."""
-        try:
-            temps = psutil.sensors_temperatures()
-        except (AttributeError, OSError):
-            return None
-        for name in TEMP_SENSORS:
-            entries = temps.get(name)
-            if not entries:
-                continue
-            for e in entries:  # prefer the package reading
-                if e.label.lower().startswith(("package", "tctl", "tdie")):
-                    return e.current
-            return entries[0].current
-        for entries in temps.values():
-            if entries:
-                return entries[0].current
-        return None
 
 
 def _spawn(argv):

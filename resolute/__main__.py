@@ -14,7 +14,7 @@ def main():
     parser = argparse.ArgumentParser(prog="resolute", description="A desktop shaped like a roll-top desk.")
     parser.add_argument("--windowed", action="store_true", help="run in a normal window instead of as the desktop")
     parser.add_argument("--screenshot", metavar="FILE", help="render one frame to FILE and exit")
-    parser.add_argument("--open", choices=["documents", "programs", "files", "menu", "note"], help="with --screenshot: open this first")
+    parser.add_argument("--open", choices=["documents", "programs", "files", "menu", "note", "sketch"], help="with --screenshot: open this first")
     args = parser.parse_args()
 
     app = QApplication(sys.argv)
@@ -33,6 +33,8 @@ def main():
             win.files.open()
         elif args.open == "note":
             win.toggle_note()
+        elif args.open == "sketch":
+            win.lift_sketch()
 
         def snap():
             for _ in range(60):

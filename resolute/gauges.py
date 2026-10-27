@@ -20,7 +20,7 @@ def _polar(cx, cy, r, deg):
 
 
 class Gauge:
-    def __init__(self, center, radius, title, subtitle, lo, hi, major, minors, red_from, has_lamp=False):
+    def __init__(self, center, radius, title, subtitle, lo, hi, major, minors, red, has_lamp=False):
         self.cx, self.cy = center
         self.r = radius
         self.title = title
@@ -28,7 +28,7 @@ class Gauge:
         self.lo, self.hi = lo, hi
         self.major = major
         self.minors = minors
-        self.red_from = red_from
+        self.red = red  # (from, to) values of the red band, or None
         self.value = lo  # what the needle shows (eased)
         self.target = lo
         self.readout = "--"
@@ -99,9 +99,9 @@ class Gauge:
         p.drawEllipse(QPointF(cx, cy), fr, fr)
 
         # red zone band
-        if self.red_from is not None:
-            a0 = self._angle(self.red_from)
-            a1 = self._angle(self.hi)
+        if self.red is not None:
+            a0 = self._angle(self.red[0])
+            a1 = self._angle(self.red[1])
             band = QRectF(cx - fr * 0.86, cy - fr * 0.86, fr * 1.72, fr * 1.72)
             p.setPen(QPen(QColor(178, 40, 30, 210), fr * 0.07, Qt.PenStyle.SolidLine, Qt.PenCapStyle.FlatCap))
             p.drawArc(band, int(a1 * 16), int((a0 - a1) * 16))
