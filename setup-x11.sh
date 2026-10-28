@@ -423,7 +423,10 @@ say "  The desk is laid out for a 16:9 screen (1920x1080, 1600x900, ...); other 
 say "  more desk showing below or bars at the sides. Check yours with:  xrandr | grep '*'"
 case "$VM" in
     vmware) say "  In VMware, turn on View > Autosize > Autofit Guest (Workstation/Player) or"
-            say "  View > Resize Virtual Machine (Fusion), so the screen follows the window." ;;
+            say "  View > Resize Virtual Machine (Fusion), so the screen follows the window. If the desk"
+            say "  looks blurry, the VM is being drawn at a low resolution and stretched: turn off"
+            say "  View > Autosize > Stretch Guest (Workstation), or turn on Settings > Display >"
+            say "  Use full resolution for Retina display (Fusion on a Mac)." ;;
     oracle) say "  In VirtualBox, turn on View > Auto-resize Guest Display, so the screen follows the window." ;;
     kvm|qemu) say "  In virt-manager, turn on View > Scale Display > Auto resize VM with window." ;;
 esac

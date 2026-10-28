@@ -52,8 +52,7 @@ def main():
     else:
         win.winId()  # create the native window so it can be typed before mapping
         win.make_desktop_window()
-        screen = app.primaryScreen().geometry()
-        win.setGeometry(screen)
+        win.fill_screen()
         win.show()
     sys.exit(app.exec())
 

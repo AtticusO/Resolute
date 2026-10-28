@@ -7,9 +7,9 @@ import threading
 import time
 from types import SimpleNamespace
 
-from PyQt6.QtCore import QPoint, QPointF, QRect, QRectF, Qt, QTimer
+from PyQt6.QtCore import QEvent, QPoint, QPointF, QRect, QRectF, Qt, QTimer
 from PyQt6.QtGui import QAction, QColor, QFont, QFontMetrics, QKeySequence, QPainter, QPen, QPixmap, QRadialGradient
-from PyQt6.QtWidgets import QMenu, QWidget
+from PyQt6.QtWidgets import QApplication, QMenu, QWidget
 
 from . import audio, clock, config, desk, lamp, note, pencup, shelves, sketch, stickies, textures, windows
 from .drawers import DocumentsDrawer, FilesDrawer, ProgramsDrawer
@@ -18,9 +18,10 @@ from .globe import Globe
 from .radio import Radio
 from .startmenu import AppPicker, StartMenu
 from .taskslots import TaskSlots
-from .system import Stats, battery, open_browser, open_path, open_terminal, open_url
+from .system import Stats, battery, missing_guest_tools, open_browser, open_path, open_terminal, open_url
 
 FRAME_MS = 33
+_DPR_CHANGE = getattr(QEvent.Type, "DevicePixelRatioChange", None)
 DEVICE_MENU_STYLE = """
 QMenu { background: #efe4c8; border: 4px solid #6b3418; padding: 4px; font-family: 'C059'; font-size: 14px; color: #3a2a1c; }
 QMenu::item { padding: 5px 22px 5px 26px; }
@@ -181,6 +182,13 @@ class DeskWindow(QWidget):
         self._fit()
         self._static = None
         super().resizeEvent(event)
+
+    def event(self, event):
+        # the screen's scaling changed (Qt 6.6 and later): redraw the layers at the new resolution
+        if event.type() == _DPR_CHANGE:
+            self._static = None
+            self.update()
+        return super().event(event)
 
     def _desk_layer_changed(self):
         self._static_stale = True
@@ -356,9 +364,9 @@ class DeskWindow(QWidget):
         p.restore()
 
     # -- updates -----------------------------------------------------------
-    def notify(self, message):
+    def notify(self, message, seconds=5):
         self.toast = message
-        self.toast_ticks = 150  # about five seconds
+        self.toast_ticks = int(seconds * 1000 / FRAME_MS)
         self.update(self.to_widget(self._toast_rect().adjusted(-4, -4, 8, 8), fixed=True))
 
     def _gauge_area(self):
@@ -1016,3 +1024,31 @@ class DeskWindow(QWidget):
         subprocess.run(["xprop", "-id", str(int(self.winId())), "-f", "_NET_WM_WINDOW_TYPE", "32a",
                         "-set", "_NET_WM_WINDOW_TYPE", "_NET_WM_WINDOW_TYPE_DESKTOP"],
                        stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+
+    def fill_screen(self):
+        """Cover the primary screen, and keep covering it whenever it changes size. In a virtual machine
+        the guest tools resize the screen to the VM's window a moment after login, after the desk has started."""
+        app = QApplication.instance()
+
+        def fit():
+            screen = app.primaryScreen()
+            if screen is not None and self.geometry() != screen.geometry():
+                self.setGeometry(screen.geometry())
+
+        def watch(screen):
+            screen.geometryChanged.connect(lambda *_: fit())
+
+        for screen in app.screens():
+            watch(screen)
+        app.screenAdded.connect(watch)
+        app.primaryScreenChanged.connect(lambda *_: fit())
+        fit()
+        # by now the guest tools have had time to start; without them the screen never fits the window
+        QTimer.singleShot(20000, self._check_guest_tools)
+
+    def _check_guest_tools(self):
+        missing = missing_guest_tools()
+        if missing:
+            vm, package = missing
+            self.notify(f"{vm}'s guest tools aren't running, so the screen can't fit its window: "
+                        f"install {package} (./setup-x11.sh offers it) and reboot", seconds=15)

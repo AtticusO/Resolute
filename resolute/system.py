@@ -113,6 +113,35 @@ def _application_dirs():
     return [data_home / "applications"] + [Path(d) / "applications" for d in data_dirs if d]
 
 
+# --- virtual machines -----------------------------------------------------
+
+# For each kind of VM (as systemd-detect-virt names it): its name, the guest tools process that resizes
+# the screen to fit the VM's window (and an argument that picks it out), and the package that has it.
+_GUEST_TOOLS = {
+    "vmware": ("VMware", "vmtoolsd", "vmusr", "open-vm-tools-desktop"),  # the session's own vmtoolsd
+    "oracle": ("VirtualBox", "VBoxClient", None, "virtualbox-guest-x11"),
+    "kvm": ("QEMU/KVM", "spice-vdagent", None, "spice-vdagent"),
+    "qemu": ("QEMU/KVM", "spice-vdagent", None, "spice-vdagent"),
+}
+
+
+def missing_guest_tools():
+    """(VM name, package) when this is a virtual machine whose guest tools aren't running, else None."""
+    if not shutil.which("systemd-detect-virt"):
+        return None
+    try:
+        vm = subprocess.run(["systemd-detect-virt", "--vm"], capture_output=True, text=True, timeout=3).stdout.strip()
+    except (OSError, subprocess.TimeoutExpired):
+        return None
+    if vm not in _GUEST_TOOLS:
+        return None
+    name, process, arg, package = _GUEST_TOOLS[vm]
+    for proc in psutil.process_iter(["name", "cmdline"]):
+        if proc.info["name"] == process and (arg is None or arg in (proc.info["cmdline"] or [])):
+            return None
+    return name, package
+
+
 # --- power ----------------------------------------------------------------
 
 def _in_xfce():

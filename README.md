@@ -87,7 +87,7 @@ for p in $(xfconf-query -c xfce4-panel -p /panels | grep -E '^[0-9]+$'); do
 
 ### Screen shape
 
-The desk is laid out for a 16:9 screen (1920×1080, 1600×900 and so on). On a taller screen (4:3, 16:10) it stays at the top and more of the desk shows below; on a wider one it sits between bars at the sides. Check yours with `xrandr | grep '*'`. A virtual machine stuck at 4:3 (often 1024×768) usually lacks its guest tools: `setup-x11.sh` offers them for VMware (`open-vm-tools-desktop`), VirtualBox and QEMU/KVM, and then the VM's screen can follow its window (in VMware, View > Autosize > Autofit Guest).
+The desk is laid out for a 16:9 screen (1920×1080, 1600×900 and so on). On a taller screen (4:3, 16:10) it stays at the top and more of the desk shows below; on a wider one it sits between bars at the sides. Check yours with `xrandr | grep '*'`. A virtual machine stuck at 4:3 (often 1024×768) usually lacks its guest tools: `setup-x11.sh` offers them for VMware (`open-vm-tools-desktop`), VirtualBox and QEMU/KVM, and then the VM's screen can follow its window (in VMware, View > Autosize > Autofit Guest). The desk resizes itself whenever the screen does, so it still fills the screen when the guest tools resize it just after login; if they aren't running about 20 seconds after the desk starts, it says so. In VMware, a blurry desk means the VM is drawn at a low resolution and stretched: turn off View > Autosize > Stretch Guest (Workstation), or turn on Use full resolution for Retina display in the VM's Display settings (Fusion).
 
 ## Settings
 
