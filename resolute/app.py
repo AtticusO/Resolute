@@ -94,7 +94,7 @@ class DeskWindow(QWidget):
         self.ink_hovered = False
         self.ink_tag = SimpleNamespace(cx=note.CX + 30, cy=note.TOP_Y - 70, r=60, detail="Write a note")
         self.note = note.Note()
-        self.note.changed.connect(lambda: self.update(self.to_widget(self.note.bounds())))
+        self.note.changed.connect(lambda: self.update(self.to_widget(self.note.damage())))
         self._note_drag = False
         self.sketch = sketch.Sketch(self.notify)
         self.sketch.changed.connect(self._sketch_changed)
@@ -579,6 +579,9 @@ class DeskWindow(QWidget):
         if target == "sketch":  # the pen in your hand stands in for the pointer on the page
             self.setCursor({"page": Qt.CursorShape.BlankCursor, "pad": Qt.CursorShape.ArrowCursor}.get(
                 hit, Qt.CursorShape.PointingHandCursor))
+            return
+        if target == "page" and self.note.button_at(pt):
+            self.setCursor(Qt.CursorShape.PointingHandCursor)
             return
         if target == "page" or (target == "sticky" and hit is self.stickies.editing):
             self.setCursor(Qt.CursorShape.IBeamCursor)

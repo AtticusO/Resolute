@@ -34,6 +34,10 @@ PAPER_WORLD = QRectF(905, 548, 330, 350)
 PAPER_ANGLE = -1.0  # set down just slightly askew
 UPRIGHT = 0.45  # 0 = lying fully flat in the desk's perspective, 1 = facing the viewer; in between reads better
 IMG_W, IMG_H = 660, 700  # resolution the page is drawn at before it is laid onto the desk
+# Raised: held up upright in the middle of the screen, like the sketch pad, in scene coordinates.
+RAISED_CENTER = QPointF(960, 548)
+RAISED_H = 720.0
+RAISED_ANGLE = 0.8
 
 
 def bounds():
@@ -200,6 +204,9 @@ class Note(QObject):
         self.path = self.default_path
         self.visible = False
         self.t = 0.0  # 0 = put away, 1 = lying on the pad
+        self.raised = False
+        self.r = 0.0  # 0 = on the pad, 1 = raised up in front of you
+        self._last = QRectF()
         self.image = None
         self._texture = _paper_texture(IMG_W, IMG_H)
         self._caret_on = True
@@ -230,8 +237,7 @@ class Note(QObject):
         self._anim = QTimer(self, interval=16, timeout=self._step)
 
     # -- geometry ------------------------------------------------------------
-    def page_transform(self):
-        """Page pixels -> scene, through the desk top's perspective."""
+    def _flat_quad(self):
         slide = (1 - self._ease(self.t)) * 160  # slides in from the front of the pad
         c = PAPER_WORLD.center()
         t = QTransform()
@@ -241,13 +247,29 @@ class Note(QObject):
         t.scale(PAPER_WORLD.width() / IMG_W, PAPER_WORLD.height() / IMG_H)
         flat = (t * desk.surface_transform()).map(QPolygonF(QRectF(0, 0, IMG_W, IMG_H)))
         # ease the perspective: keep the bottom edge on the pad, bring the top towards facing the viewer
-        tl, tr, br, bl = flat[0], flat[1], flat[2], flat[3]
+        tl, tr, br, bl = (QPointF(flat[i]) for i in range(4))  # copies: indexing refers into the polygon
         width = math.hypot(br.x() - bl.x(), br.y() - bl.y())
         height = width * IMG_H / IMG_W * 0.8
         up_l, up_r = QPointF(bl.x(), bl.y() - height), QPointF(br.x(), br.y() - height)
-        quad = QPolygonF([tl + (up_l - tl) * UPRIGHT, tr + (up_r - tr) * UPRIGHT, br, bl])
+        return [tl + (up_l - tl) * UPRIGHT, tr + (up_r - tr) * UPRIGHT, br, bl]
+
+    @staticmethod
+    def _raised_quad():
+        t = QTransform()
+        t.translate(RAISED_CENTER.x(), RAISED_CENTER.y())
+        t.rotate(RAISED_ANGLE)
+        t.scale(RAISED_H / IMG_H, RAISED_H / IMG_H)
+        t.translate(-IMG_W / 2, -IMG_H / 2)
+        return [t.map(QPointF(x, y)) for x, y in ((0, 0), (IMG_W, 0), (IMG_W, IMG_H), (0, IMG_H))]
+
+    def page_transform(self):
+        """Page pixels -> scene: lying on the pad in the desk top's perspective, or raised in front of you."""
+        quad = self._flat_quad()
+        if self.r > 0:
+            e = self._ease(self.r)
+            quad = [f + (u - f) * e for f, u in zip(quad, self._raised_quad())]
         out = QTransform()
-        QTransform.quadToQuad(QPolygonF(QRectF(0, 0, IMG_W, IMG_H)), quad, out)
+        QTransform.quadToQuad(QPolygonF(QRectF(0, 0, IMG_W, IMG_H)), QPolygonF(quad), out)
         return out
 
     def scene_polygon(self):
@@ -255,6 +277,12 @@ class Note(QObject):
 
     def bounds(self):
         return self.scene_polygon().boundingRect().adjusted(-30, -30, 40, 50)
+
+    def damage(self):
+        """What needs repainting: everything the page covered last time and covers now."""
+        now = self.bounds()
+        rect, self._last = self._last.united(now), now
+        return rect
 
     def to_page(self, scene_pt):
         inv, ok = self.page_transform().inverted()
@@ -266,6 +294,20 @@ class Note(QObject):
 
     def _close_rect(self):
         return QRectF(IMG_W - 66, 8, 56, 56)
+
+    def _raise_rect(self):
+        return QRectF(IMG_W - 122, 8, 56, 56)
+
+    def button_at(self, scene_pt):
+        """'close' or 'raise' if the pointer is on one of the marks at the top of the page."""
+        if not self.visible:
+            return None
+        page = self.to_page(scene_pt)
+        if self._close_rect().contains(page):
+            return "close"
+        if self._raise_rect().contains(page):
+            return "raise"
+        return None
 
     @staticmethod
     def _ease(t):
@@ -312,15 +354,27 @@ class Note(QObject):
         if self._save_timer.isActive():
             self.save()
         self.visible = False
+        self.raised = False  # it goes back down onto the pad as it is put away
         self._blink.stop()
         self._anim.start()
         self.closed.emit()
 
+    def toggle_raised(self):
+        """Hold the page up, larger, in the middle of the screen, or lay it back on the pad."""
+        self.raised = not self.raised
+        self._anim.start()
+
     def _step(self):
-        target = 1.0 if self.visible else 0.0
-        self.t += (target - self.t) * 0.22
-        if abs(target - self.t) < 0.004:
-            self.t = target
+        done = True
+        for attr, target in (("t", 1.0 if self.visible else 0.0), ("r", 1.0 if self.raised else 0.0)):
+            v = getattr(self, attr)
+            v += (target - v) * 0.22
+            if abs(target - v) < 0.004:
+                v = target
+            else:
+                done = False
+            setattr(self, attr, v)
+        if done:
             self._anim.stop()
         self.changed.emit()
 
@@ -337,6 +391,9 @@ class Note(QObject):
         if kind == "press":
             if self._close_rect().contains(page):
                 self.put_away()
+                return True
+            if self._raise_rect().contains(page):
+                self.toggle_raised()
                 return True
             if not (0 <= page.x() <= IMG_W and 0 <= page.y() <= IMG_H):
                 return False
@@ -416,6 +473,11 @@ class Note(QObject):
         p.setFont(font)
         p.setPen(QColor(110, 74, 42))
         p.drawText(self._close_rect(), Qt.AlignmentFlag.AlignCenter, "×")
+        p.setPen(QPen(QColor(110, 74, 42), 3.2))
+        p.setBrush(Qt.BrushStyle.NoBrush)
+        side = 24
+        c = self._raise_rect().center()
+        p.drawRect(QRectF(c.x() - side / 2, c.y() - side / 2 + 3, side, side))  # lined up with the ×
         font.setPixelSize(22)
         font.setItalic(True)
         p.setFont(font)
